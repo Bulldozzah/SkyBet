@@ -526,427 +526,468 @@ function ScannerPage() {
         )}
       </div>
 
-      {/* Controls */}
-      <div className="card mb-4 grid gap-3 md:grid-cols-4">
-        {scanTab === "league" ? (
-          <div>
-            <label className="label" htmlFor="league">
-              League
-            </label>
-            <select
-              id="league"
-              value={league}
-              onChange={(e) => setLeague(e.target.value)}
-              disabled={!hasKey}
-              className="input"
-            >
-              {leagues.length === 0 && <option value="soccer_epl">EPL</option>}
-              {leagues.map((l) => (
-                <option key={l.key} value={l.key}>
-                  {l.title}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : (
-          <div>
-            <label className="label" htmlFor="scanDate">
-              Match date
-            </label>
-            <input
-              id="scanDate"
-              type="date"
-              value={scanDate}
-              onChange={(e) => setScanDate(e.target.value)}
-              disabled={!hasKey}
-              className="input"
-            />
-          </div>
-        )}
-
-        <div>
-          <label className="label" htmlFor="books">
-            Bookmakers
-          </label>
-          <select
-            id="books"
-            value={books}
-            onChange={(e) => setBooks(e.target.value)}
-            disabled={!hasKey}
-            className="input"
-          >
-            {BOOK_OPTIONS.map((b) => (
-              <option key={b.value} value={b.value}>
-                {b.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div
-          title={books !== "region" ? "Ignored while specific bookmakers are selected" : undefined}
-        >
-          <label className="label" htmlFor="regions">
-            Bookmaker region
-          </label>
-          <select
-            id="regions"
-            value={regions}
-            onChange={(e) => setRegions(e.target.value)}
-            disabled={!hasKey || books !== "region"}
-            className="input disabled:opacity-50"
-          >
-            {REGION_OPTIONS.map((r) => (
-              <option key={r.value} value={r.value}>
-                {r.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="label" htmlFor="minPct">
-            Min profit %
-          </label>
-          <input
-            id="minPct"
-            type="number"
-            min="0"
-            step="0.5"
-            value={minPct}
-            onChange={(e) => setMinPct(e.target.value)}
-            className="input"
-          />
-        </div>
-
-        {scanTab === "date" && (
-          <div className="md:col-span-4">
-            <label className="label">
-              Leagues to scan — {selLeagues.length} selected, ~{scanCost} credit
-              {scanCost === 1 ? "" : "s"} per scan
-            </label>
-            {leagues.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                {hasKey ? "Loading in-season leagues…" : "League list needs an API key."}
-              </p>
+      {/*
+        Two columns on desktop: scan controls on the left, results on the
+        right. Below `lg` it collapses to one column and DOM order puts the
+        controls on top with the results beneath.
+      */}
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]">
+        {/* ------------------------------------------------ controls column */}
+        <aside className="space-y-4 lg:sticky lg:top-4">
+          <div className="card grid gap-3">
+            {scanTab === "league" ? (
+              <div>
+                <label className="label" htmlFor="league">
+                  League
+                </label>
+                <select
+                  id="league"
+                  value={league}
+                  onChange={(e) => setLeague(e.target.value)}
+                  disabled={!hasKey}
+                  className="input"
+                >
+                  {leagues.length === 0 && <option value="soccer_epl">EPL</option>}
+                  {leagues.map((l) => (
+                    <option key={l.key} value={l.key}>
+                      {l.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
             ) : (
-              <div className="flex max-h-44 flex-wrap gap-2 overflow-y-auto rounded-md border border-border p-2">
-                {leagues.map((l) => (
-                  <label
-                    key={l.key}
-                    className={cn(
-                      "cursor-pointer rounded-full border px-3 py-1 text-xs font-medium transition",
-                      selLeagues.includes(l.key)
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-card hover:bg-accent",
-                    )}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selLeagues.includes(l.key)}
-                      onChange={() => toggleLeague(l.key)}
-                      className="sr-only"
-                    />
-                    {l.title}
-                  </label>
-                ))}
+              <div>
+                <label className="label" htmlFor="scanDate">
+                  Match date
+                </label>
+                <input
+                  id="scanDate"
+                  type="date"
+                  value={scanDate}
+                  onChange={(e) => setScanDate(e.target.value)}
+                  disabled={!hasKey}
+                  className="input"
+                />
               </div>
             )}
-          </div>
-        )}
 
-        <div className="flex items-end gap-2 md:col-span-4">
-          <button
-            onClick={() => void (scanTab === "league" ? scanLive() : scanByDate())}
-            disabled={!hasKey || busy || (scanTab === "date" && !scanDate)}
-            className="btn-primary disabled:opacity-60"
-          >
-            <RefreshCw className={cn("h-4 w-4", busy && "animate-spin")} />
-            {busy
-              ? "Scanning…"
-              : scanTab === "date"
-                ? dateGames
-                  ? "Rescan this date"
-                  : "Scan this date"
-                : source === "live"
-                  ? "Rescan live odds"
-                  : "Scan live odds"}
-          </button>
-          {scanTab === "league" && (
-            <button
-              onClick={scanDemo}
-              disabled={busy}
-              className="btn-secondary disabled:opacity-60"
-            >
-              <FlaskConical className="h-4 w-4" /> Demo data
-            </button>
-          )}
-        </div>
-      </div>
+            <div>
+              <label className="label" htmlFor="books">
+                Bookmakers
+              </label>
+              <select
+                id="books"
+                value={books}
+                onChange={(e) => setBooks(e.target.value)}
+                disabled={!hasKey}
+                className="input"
+              >
+                {BOOK_OPTIONS.map((b) => (
+                  <option key={b.value} value={b.value}>
+                    {b.label}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-      {activeGames && (
-        <>
-          {/* Scan meta */}
-          <div className="mb-4 flex flex-wrap items-center gap-3">
-            <span className="rounded-md bg-secondary px-3 py-1.5 text-xs text-secondary-foreground">
-              {scanTab === "date"
-                ? `Live odds · ${dateGames?.length ?? 0} games on ${scanDate}`
-                : `${source === "demo" ? "Demo data" : "Live odds"} · ${
-                    filteredGames?.length === games?.length
-                      ? `${games?.length} games`
-                      : `${filteredGames?.length} of ${games?.length} games in date range`
-                  }`}{" "}
-              · {pairs.length} qualifying {comboWord}
-              {books !== "region" && (scanTab === "date" || source === "live")
-                ? ` · ${BOOK_OPTIONS.find((b) => b.value === books)?.label ?? books}`
-                : ""}
-            </span>
-            {activeScannedAt && (
-              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Clock className="h-3.5 w-3.5" /> scanned {scanAge(activeScannedAt)}
-              </span>
-            )}
-          </div>
-
-          {scanTab === "league" && (
             <div
-              className="mb-4 flex flex-wrap items-center gap-2 text-xs"
-              title="Only pair games kicking off within this date range"
+              title={
+                books !== "region" ? "Ignored while specific bookmakers are selected" : undefined
+              }
             >
-              <span className="font-semibold uppercase tracking-wide text-muted-foreground">
-                Kickoff
-              </span>
+              <label className="label" htmlFor="regions">
+                Bookmaker region
+              </label>
+              <select
+                id="regions"
+                value={regions}
+                onChange={(e) => setRegions(e.target.value)}
+                disabled={!hasKey || books !== "region"}
+                className="input disabled:opacity-50"
+              >
+                {REGION_OPTIONS.map((r) => (
+                  <option key={r.value} value={r.value}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="label" htmlFor="minPct">
+                Min profit %
+              </label>
               <input
-                type="date"
-                value={dateFrom}
-                max={dateTo || undefined}
-                onChange={(e) => setDateFrom(e.target.value)}
-                aria-label="Kickoff from date"
-                className="input w-auto"
+                id="minPct"
+                type="number"
+                min="0"
+                step="0.5"
+                value={minPct}
+                onChange={(e) => setMinPct(e.target.value)}
+                className="input"
               />
-              <span className="text-muted-foreground">to</span>
-              <input
-                type="date"
-                value={dateTo}
-                min={dateFrom || undefined}
-                onChange={(e) => setDateTo(e.target.value)}
-                aria-label="Kickoff to date"
-                className="input w-auto"
-              />
-              {(dateFrom || dateTo) && (
+            </div>
+
+            {scanTab === "date" && (
+              <div>
+                <label className="label">
+                  Leagues to scan — {selLeagues.length} selected, ~{scanCost} credit
+                  {scanCost === 1 ? "" : "s"} per scan
+                </label>
+                {leagues.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    {hasKey ? "Loading in-season leagues…" : "League list needs an API key."}
+                  </p>
+                ) : (
+                  <div className="flex max-h-44 flex-wrap gap-2 overflow-y-auto rounded-md border border-border p-2">
+                    {leagues.map((l) => (
+                      <label
+                        key={l.key}
+                        className={cn(
+                          "cursor-pointer rounded-full border px-3 py-1 text-xs font-medium transition",
+                          selLeagues.includes(l.key)
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-card hover:bg-accent",
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selLeagues.includes(l.key)}
+                          onChange={() => toggleLeague(l.key)}
+                          className="sr-only"
+                        />
+                        {l.title}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-end gap-2">
+              <button
+                onClick={() => void (scanTab === "league" ? scanLive() : scanByDate())}
+                disabled={!hasKey || busy || (scanTab === "date" && !scanDate)}
+                className="btn-primary flex-1 justify-center disabled:opacity-60"
+              >
+                <RefreshCw className={cn("h-4 w-4", busy && "animate-spin")} />
+                {busy
+                  ? "Scanning…"
+                  : scanTab === "date"
+                    ? dateGames
+                      ? "Rescan this date"
+                      : "Scan this date"
+                    : source === "live"
+                      ? "Rescan live odds"
+                      : "Scan live odds"}
+              </button>
+              {scanTab === "league" && (
                 <button
-                  onClick={() => {
-                    setDateFrom("");
-                    setDateTo("");
-                  }}
-                  className="btn-secondary py-1 text-xs"
+                  onClick={scanDemo}
+                  disabled={busy}
+                  className="btn-secondary disabled:opacity-60"
                 >
-                  Clear
+                  <FlaskConical className="h-4 w-4" /> Demo
                 </button>
               )}
             </div>
-          )}
-
-          {/* Result options */}
-          <div className="mb-4 flex flex-wrap gap-2">
-            {[2, 3].map((n) => (
-              <Chip
-                key={n}
-                active={teamCount === n}
-                onClick={() => setTeamCount(n)}
-                title="How many games to combine per slip"
-              >
-                {n} teams ({Math.pow(3, n)} scenarios)
-              </Chip>
-            ))}
-            <Chip
-              active={mode === "single"}
-              onClick={() => setMode("single")}
-              title="All legs at one bookmaker — a slip you can actually place"
-            >
-              Same bookmaker ({scenarioCount - 1}/{scenarioCount})
-            </Chip>
-            <Chip
-              active={mode === "cross"}
-              onClick={() => setMode("cross")}
-              title="Best price per outcome across books — legs placed at different bookmakers"
-            >
-              Best odds across books
-            </Chip>
-            {SORTS.map((s) => (
-              <Chip
-                key={s.key}
-                active={sortBy === s.key}
-                onClick={() => setSortBy(s.key)}
-                title={
-                  s.key === "profit"
-                    ? "Order by profit on covered scenarios, highest first"
-                    : "Order by lowest chance of the excluded scenario hitting"
-                }
-              >
-                {s.label}
-              </Chip>
-            ))}
           </div>
 
-          {/* Single-game arbs */}
-          {mode === "cross" && arbs.length > 0 && (
-            <div className="mb-6">
-              <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-primary">
-                <ShieldCheck className="h-4 w-4" /> Single-game arbs (risk-free across books)
-              </h2>
-              <div className="grid gap-3 md:grid-cols-2">
-                {arbs.map((a) => (
-                  <div key={a.game.id} className="card border-success/40 bg-success/5">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <div className="font-semibold">
-                        {a.game.home} v {a.game.away}
-                      </div>
-                      <span className="shrink-0 rounded-full bg-success px-2 py-0.5 text-xs font-bold text-success-foreground">
-                        +{a.profitPct.toFixed(2)}% guaranteed
-                      </span>
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      {kickoff(a.game.commence)}
-                      {a.game.league ? ` · ${a.game.league}` : ""}
-                    </div>
-                    <div className="mt-3 space-y-1 text-sm">
-                      {OUTCOMES.map((o) => (
-                        <div key={o} className="flex justify-between">
-                          <span className="font-mono">{o}</span>
-                          <span>
-                            {fmt(a.odds[o])} @ <span className="font-semibold">{a.books[o]}</span>
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-3 flex justify-end">
-                      <button
-                        onClick={() => openInCalculator(buildArbBet(a))}
-                        className="btn-primary py-1.5 text-xs"
-                      >
-                        Load into Calculator <ArrowRight className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Combination results */}
-          <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-primary">
-            <Radar className="h-4 w-4" />
-            {teamCount === 3 ? "Game triples" : "Game pairs"}
-            {mode === "single"
-              ? " — one bookmaker, best single exclusion"
-              : " — best odds per leg across books"}
-          </h2>
-
-          {pairs.length === 0 ? (
-            <div className="card text-sm text-muted-foreground">
-              {scanTab === "league" && filteredGames?.length === 0 && (games?.length ?? 0) > 0
-                ? "No scanned games kick off in the selected date range. Widen or clear the kickoff filter."
-                : activeGames.length === 0
-                  ? "No games with 3-way odds found. Scan another date or add leagues."
-                  : activeGames.length < teamCount
-                    ? `Only ${activeGames.length} game${activeGames.length === 1 ? "" : "s"} available — ${teamCount}-team combos need at least ${teamCount}. ` +
-                      (scanTab === "date"
-                        ? "Add more leagues or try another date."
-                        : "Widen the kickoff filter.")
-                    : `No ${comboWord} clear ${minProfit}% profit with these odds. Try a lower floor${
-                        teamCount === 3 ? ", switch to 2 teams," : ""
-                      } or ${scanTab === "date" ? "more leagues" : "another league"}.`}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {pairs.length > MAX_RESULTS && (
-                <p className="text-xs text-muted-foreground">
-                  Showing the top {MAX_RESULTS} of {pairs.length} qualifying results (
-                  {sortBy === "profit" ? "highest profit" : "safest"} first).
-                </p>
-              )}
-              {pairs.slice(0, MAX_RESULTS).map((r, idx) => (
+          {/* Result shaping — only useful once there is something to shape. */}
+          {activeGames && (
+            <>
+              {scanTab === "league" && (
                 <div
-                  key={`${r.games.map((g) => g.id).join("-")}-${r.bookLabel}-${idx}`}
-                  className={cn("card", r.fullCover && "border-success/40 bg-success/5")}
+                  className="card space-y-2"
+                  title="Only pair games kicking off within this date range"
                 >
-                  <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="mb-1 flex flex-wrap items-center gap-2">
-                        <span
-                          className={cn(
-                            "rounded-full px-2 py-0.5 text-xs font-bold",
-                            r.fullCover
-                              ? "bg-success text-success-foreground"
-                              : "bg-primary text-primary-foreground",
-                          )}
-                        >
-                          {r.fullCover ? scenarioCount : scenarioCount - 1}/{scenarioCount} covered
-                        </span>
-                        <span className="text-xs text-muted-foreground">via {r.bookLabel}</span>
-                      </div>
-                      <div className="space-y-0.5">
-                        {r.games.map((g) => (
-                          <div key={g.id} className="text-sm font-medium">
-                            {g.home} <span className="text-muted-foreground">v</span> {g.away}
-                            <span className="ml-2 text-xs text-muted-foreground">
-                              {kickoff(g.commence)}
-                              {g.league ? ` · ${g.league}` : ""}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-2xl font-bold text-success">
-                        +{r.profitPct.toFixed(2)}%
-                      </div>
-                      <div className="text-xs text-muted-foreground">on covered scenarios</div>
-                    </div>
+                  <span className="label mb-0">Kickoff range</span>
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <input
+                      type="date"
+                      value={dateFrom}
+                      max={dateTo || undefined}
+                      onChange={(e) => setDateFrom(e.target.value)}
+                      aria-label="Kickoff from date"
+                      className="input w-auto flex-1"
+                    />
+                    <span className="text-muted-foreground">to</span>
+                    <input
+                      type="date"
+                      value={dateTo}
+                      min={dateFrom || undefined}
+                      onChange={(e) => setDateTo(e.target.value)}
+                      aria-label="Kickoff to date"
+                      className="input w-auto flex-1"
+                    />
                   </div>
-
-                  <div
-                    className={cn(
-                      "flex items-start gap-2 rounded-md p-3 text-xs",
-                      r.fullCover
-                        ? "bg-success/10 text-success"
-                        : "bg-warning/10 text-warning-foreground",
-                    )}
-                  >
-                    {r.fullCover ? (
-                      <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
-                    ) : (
-                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                    )}
-                    <span>
-                      {r.fullCover
-                        ? `All ${scenarioCount} scenarios covered — no losing outcome.`
-                        : `${scenarioCount - 1} of ${scenarioCount} covered — loses only if ${excludeText(r)} (~${(r.exclProb * 100).toFixed(0)}% implied chance).`}
-                    </span>
-                  </div>
-
-                  <div className="mt-3 flex justify-end">
+                  {(dateFrom || dateTo) && (
                     <button
-                      onClick={() => openInCalculator(buildComboBet(r))}
-                      className="btn-primary py-1.5 text-xs"
+                      onClick={() => {
+                        setDateFrom("");
+                        setDateTo("");
+                      }}
+                      className="btn-secondary w-full justify-center py-1 text-xs"
                     >
-                      Load into Calculator <ArrowRight className="h-3.5 w-3.5" />
+                      Clear range
                     </button>
+                  )}
+                </div>
+              )}
+
+              <div className="card space-y-3">
+                <div>
+                  <span className="label">Combine</span>
+                  <div className="flex gap-2">
+                    {[2, 3].map((n) => (
+                      <Chip
+                        key={n}
+                        active={teamCount === n}
+                        onClick={() => setTeamCount(n)}
+                        title="How many games to combine per slip"
+                      >
+                        {n} teams ({Math.pow(3, n)})
+                      </Chip>
+                    ))}
                   </div>
                 </div>
-              ))}
-            </div>
+                <div>
+                  <span className="label">Odds source</span>
+                  <div className="flex flex-wrap gap-2">
+                    <Chip
+                      active={mode === "single"}
+                      onClick={() => setMode("single")}
+                      title="All legs at one bookmaker — a slip you can actually place"
+                    >
+                      Same bookmaker ({scenarioCount - 1}/{scenarioCount})
+                    </Chip>
+                    <Chip
+                      active={mode === "cross"}
+                      onClick={() => setMode("cross")}
+                      title="Best price per outcome across books — legs placed at different bookmakers"
+                    >
+                      Best odds across books
+                    </Chip>
+                  </div>
+                </div>
+                <div>
+                  <span className="label">Sort</span>
+                  <div className="flex flex-wrap gap-2">
+                    {SORTS.map((s) => (
+                      <Chip
+                        key={s.key}
+                        active={sortBy === s.key}
+                        onClick={() => setSortBy(s.key)}
+                        title={
+                          s.key === "profit"
+                            ? "Order by profit on covered scenarios, highest first"
+                            : "Order by lowest chance of the excluded scenario hitting"
+                        }
+                      >
+                        {s.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </>
           )}
+        </aside>
 
-          <p className="mt-6 text-xs text-muted-foreground">
-            <strong>Note:</strong> “{scenarioCount - 1} of {scenarioCount} covered” is not
-            risk-free: the excluded scenario is usually the bookmaker&apos;s favourite outcome, and
-            its stake is lost if it happens. Stakes shown assume a 100 budget — adjust the Stake
-            field after loading. Odds move; re-check them on the bookmaker before placing.
-          </p>
-        </>
-      )}
+        {/* -------------------------------------------------- results column */}
+        <section className="min-w-0">
+          {!activeGames ? (
+            <div className="card text-center text-sm text-muted-foreground">
+              No scan yet. Choose a league or a date on the left, then press{" "}
+              <strong>Scan live odds</strong> — or try <strong>Demo</strong> to see the workflow
+              without spending API credits.
+            </div>
+          ) : (
+            <>
+              {/* Scan meta */}
+              <div className="mb-4 flex flex-wrap items-center gap-3">
+                <span className="rounded-md bg-secondary px-3 py-1.5 text-xs text-secondary-foreground">
+                  {scanTab === "date"
+                    ? `Live odds · ${dateGames?.length ?? 0} games on ${scanDate}`
+                    : `${source === "demo" ? "Demo data" : "Live odds"} · ${
+                        filteredGames?.length === games?.length
+                          ? `${games?.length} games`
+                          : `${filteredGames?.length} of ${games?.length} games in date range`
+                      }`}{" "}
+                  · {pairs.length} qualifying {comboWord}
+                  {books !== "region" && (scanTab === "date" || source === "live")
+                    ? ` · ${BOOK_OPTIONS.find((b) => b.value === books)?.label ?? books}`
+                    : ""}
+                </span>
+                {activeScannedAt && (
+                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Clock className="h-3.5 w-3.5" /> scanned {scanAge(activeScannedAt)}
+                  </span>
+                )}
+              </div>
+
+              {/* Single-game arbs */}
+              {mode === "cross" && arbs.length > 0 && (
+                <div className="mb-6">
+                  <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-primary">
+                    <ShieldCheck className="h-4 w-4" /> Single-game arbs (risk-free across books)
+                  </h2>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {arbs.map((a) => (
+                      <div key={a.game.id} className="card border-success/40 bg-success/5">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <div className="font-semibold">
+                            {a.game.home} v {a.game.away}
+                          </div>
+                          <span className="shrink-0 rounded-full bg-success px-2 py-0.5 text-xs font-bold text-success-foreground">
+                            +{a.profitPct.toFixed(2)}% guaranteed
+                          </span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {kickoff(a.game.commence)}
+                          {a.game.league ? ` · ${a.game.league}` : ""}
+                        </div>
+                        <div className="mt-3 space-y-1 text-sm">
+                          {OUTCOMES.map((o) => (
+                            <div key={o} className="flex justify-between">
+                              <span className="font-mono">{o}</span>
+                              <span>
+                                {fmt(a.odds[o])} @{" "}
+                                <span className="font-semibold">{a.books[o]}</span>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-3 flex justify-end">
+                          <button
+                            onClick={() => openInCalculator(buildArbBet(a))}
+                            className="btn-primary py-1.5 text-xs"
+                          >
+                            Load into Calculator <ArrowRight className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Combination results */}
+              <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-primary">
+                <Radar className="h-4 w-4" />
+                {teamCount === 3 ? "Game triples" : "Game pairs"}
+                {mode === "single"
+                  ? " — one bookmaker, best single exclusion"
+                  : " — best odds per leg across books"}
+              </h2>
+
+              {pairs.length === 0 ? (
+                <div className="card text-sm text-muted-foreground">
+                  {scanTab === "league" && filteredGames?.length === 0 && (games?.length ?? 0) > 0
+                    ? "No scanned games kick off in the selected date range. Widen or clear the kickoff filter."
+                    : activeGames.length === 0
+                      ? "No games with 3-way odds found. Scan another date or add leagues."
+                      : activeGames.length < teamCount
+                        ? `Only ${activeGames.length} game${activeGames.length === 1 ? "" : "s"} available — ${teamCount}-team combos need at least ${teamCount}. ` +
+                          (scanTab === "date"
+                            ? "Add more leagues or try another date."
+                            : "Widen the kickoff filter.")
+                        : `No ${comboWord} clear ${minProfit}% profit with these odds. Try a lower floor${
+                            teamCount === 3 ? ", switch to 2 teams," : ""
+                          } or ${scanTab === "date" ? "more leagues" : "another league"}.`}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {pairs.length > MAX_RESULTS && (
+                    <p className="text-xs text-muted-foreground">
+                      Showing the top {MAX_RESULTS} of {pairs.length} qualifying results (
+                      {sortBy === "profit" ? "highest profit" : "safest"} first).
+                    </p>
+                  )}
+                  {pairs.slice(0, MAX_RESULTS).map((r, idx) => (
+                    <div
+                      key={`${r.games.map((g) => g.id).join("-")}-${r.bookLabel}-${idx}`}
+                      className={cn("card", r.fullCover && "border-success/40 bg-success/5")}
+                    >
+                      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="mb-1 flex flex-wrap items-center gap-2">
+                            <span
+                              className={cn(
+                                "rounded-full px-2 py-0.5 text-xs font-bold",
+                                r.fullCover
+                                  ? "bg-success text-success-foreground"
+                                  : "bg-primary text-primary-foreground",
+                              )}
+                            >
+                              {r.fullCover ? scenarioCount : scenarioCount - 1}/{scenarioCount}{" "}
+                              covered
+                            </span>
+                            <span className="text-xs text-muted-foreground">via {r.bookLabel}</span>
+                          </div>
+                          <div className="space-y-0.5">
+                            {r.games.map((g) => (
+                              <div key={g.id} className="text-sm font-medium">
+                                {g.home} <span className="text-muted-foreground">v</span> {g.away}
+                                <span className="ml-2 text-xs text-muted-foreground">
+                                  {kickoff(g.commence)}
+                                  {g.league ? ` · ${g.league}` : ""}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-2xl font-bold text-success">
+                            +{r.profitPct.toFixed(2)}%
+                          </div>
+                          <div className="text-xs text-muted-foreground">on covered scenarios</div>
+                        </div>
+                      </div>
+
+                      <div
+                        className={cn(
+                          "flex items-start gap-2 rounded-md p-3 text-xs",
+                          r.fullCover
+                            ? "bg-success/10 text-success"
+                            : "bg-warning/10 text-warning-foreground",
+                        )}
+                      >
+                        {r.fullCover ? (
+                          <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
+                        ) : (
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                        )}
+                        <span>
+                          {r.fullCover
+                            ? `All ${scenarioCount} scenarios covered — no losing outcome.`
+                            : `${scenarioCount - 1} of ${scenarioCount} covered — loses only if ${excludeText(r)} (~${(r.exclProb * 100).toFixed(0)}% implied chance).`}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          onClick={() => openInCalculator(buildComboBet(r))}
+                          className="btn-primary py-1.5 text-xs"
+                        >
+                          Load into Calculator <ArrowRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <p className="mt-6 text-xs text-muted-foreground">
+                <strong>Note:</strong> “{scenarioCount - 1} of {scenarioCount} covered” is not
+                risk-free: the excluded scenario is usually the bookmaker&apos;s favourite outcome,
+                and its stake is lost if it happens. Stakes shown assume a 100 budget — adjust the
+                Stake field after loading. Odds move; re-check them on the bookmaker before placing.
+              </p>
+            </>
+          )}
+        </section>
+      </div>
     </AppShell>
   );
 }
