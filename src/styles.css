@@ -118,7 +118,7 @@
   background-color: var(--color-card);
   color: var(--color-card-foreground);
   padding: 1rem;
-  box-shadow: 0 1px 2px 0 color-mix(in oklab, var(--color-primary) 5%, transparent);
+  box-shadow: 0 1px 2px 0 color-mix(in oklab, oklch(0.5 0.01 240) 6%, transparent);
 }
 
 @utility input {
