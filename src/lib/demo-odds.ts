@@ -2,6 +2,11 @@
 // Shaped exactly like normalizeEvents() output. Kickoffs are generated
 // relative to "now" so the demo never looks stale. One game (Leipzig v
 // Frankfurt) is engineered to contain a genuine cross-book 3-way arb.
+//
+// Kickoffs are built by getDemoGames() at call time rather than at module
+// load. This app is server-rendered, so a module-level Date.now() would bake
+// one timestamp into the SSR HTML and a different one into the client bundle,
+// producing a hydration mismatch.
 
 import type { BookOdds, Game } from "./odds-api";
 
@@ -15,7 +20,8 @@ const book = (key: string, title: string, W: number, D: number, L: number): Book
   L,
 });
 
-export const DEMO_GAMES: Game[] = [
+/** Fresh demo fixtures with kickoffs relative to the moment it's called. */
+export const getDemoGames = (): Game[] => [
   {
     id: "demo-1",
     home: "Arsenal",

@@ -8,6 +8,12 @@ interface AuthValue {
   profile: Profile | null;
   /** True until the first session + profile lookup settles. */
   loading: boolean;
+  /**
+   * Set when the profile could not be loaded for a recoverable reason
+   * (network, RLS, missing row). Expired sessions are not reported here —
+   * those sign the user out so the guards route them to /login.
+   */
+  profileError: string | null;
   isAdmin: boolean;
   /** Admins are implicitly approved — role outranks status. */
   isApproved: boolean;
@@ -17,9 +23,19 @@ interface AuthValue {
 
 const AuthContext = createContext<AuthValue | null>(null);
 
+/**
+ * True when a failed query is the session's fault rather than the data's.
+ * PostgREST reports an expired/invalid JWT as PGRST301 / 401.
+ */
+const isAuthError = (error: { code?: string; message?: string }): boolean =>
+  error.code === "PGRST301" ||
+  error.code === "401" ||
+  /jwt|token|expired/i.test(error.message ?? "");
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
   // Starts true so server-rendered output and the first client paint agree:
   // both show the loading state, then the browser resolves the real session.
   const [loading, setLoading] = useState(true);
@@ -27,14 +43,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loadProfile = useCallback(async (userId: string | undefined) => {
     if (!userId) {
       setProfile(null);
+      setProfileError(null);
       return;
     }
-    const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
-    if (error) {
-      console.error("Failed to load profile:", error.message);
-      setProfile(null);
-    } else {
+
+    const fetchProfile = () => supabase.from("profiles").select("*").eq("id", userId).single();
+
+    let { data, error } = await fetchProfile();
+
+    // A stored session can be restored with an already-expired access token,
+    // so the very first query fails with "JWT expired". Refresh once and retry
+    // before treating it as a real failure.
+    if (error && isAuthError(error)) {
+      const { data: refreshed, error: refreshErr } = await supabase.auth.refreshSession();
+      if (!refreshErr && refreshed.session) {
+        ({ data, error } = await fetchProfile());
+      }
+    }
+
+    if (!error) {
       setProfile(data as Profile);
+      setProfileError(null);
+      return;
+    }
+
+    setProfile(null);
+    if (isAuthError(error)) {
+      // The session cannot be revived — drop it so the guards route to /login
+      // instead of waiting for a profile that will never arrive.
+      console.warn("Session expired, signing out:", error.message);
+      setProfileError(null);
+      await supabase.auth.signOut();
+    } else {
+      // Network/RLS/missing-row: recoverable, so surface it and let the user retry.
+      console.error("Failed to load profile:", error.message);
+      setProfileError(error.message);
     }
   }, []);
 
@@ -66,6 +109,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     setProfile(null);
+    setProfileError(null);
   }, []);
 
   const value: AuthValue = {
@@ -73,6 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user: session?.user ?? null,
     profile,
     loading,
+    profileError,
     isAdmin: profile?.role === "admin",
     isApproved: profile?.status === "approved" || profile?.role === "admin",
     refreshProfile,

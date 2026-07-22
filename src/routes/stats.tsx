@@ -4,12 +4,16 @@ import { AppShell } from "@/components/app-shell";
 import { getStats, fmt, sampleBets } from "@/lib/betmaster-data";
 import { TrendingUp, TrendingDown, DollarSign, Percent, Download, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatDate } from "@/lib/format-date";
 
 export const Route = createFileRoute("/stats")({
   head: () => ({
     meta: [
       { title: "Stats — BetMaster" },
-      { name: "description", content: "Profit, ROI, win rate and per-team performance derived from your saved bets." },
+      {
+        name: "description",
+        content: "Profit, ROI, win rate and per-team performance derived from your saved bets.",
+      },
       { property: "og:title", content: "Stats — BetMaster" },
       { property: "og:description", content: "Your betting performance dashboard." },
     ],
@@ -30,7 +34,10 @@ function StatsPage() {
 
   // per-team
   const teamStats = useMemo(() => {
-    const map = new Map<string, { bets: number; staked: number; net: number; wins: number; settled: number }>();
+    const map = new Map<
+      string,
+      { bets: number; staked: number; net: number; wins: number; settled: number }
+    >();
     sampleBets.forEach((b) => {
       b.participants.forEach((t) => {
         const cur = map.get(t) ?? { bets: 0, staked: 0, net: 0, wins: 0, settled: 0 };
@@ -45,7 +52,12 @@ function StatsPage() {
       });
     });
     return Array.from(map.entries())
-      .map(([team, v]) => ({ team, ...v, roi: v.staked ? (v.net / v.staked) * 100 : 0, winRate: v.settled ? (v.wins / v.settled) * 100 : null }))
+      .map(([team, v]) => ({
+        team,
+        ...v,
+        roi: v.staked ? (v.net / v.staked) * 100 : 0,
+        winRate: v.settled ? (v.wins / v.settled) * 100 : null,
+      }))
       .sort((a, b) => b.net - a.net);
   }, []);
 
@@ -68,7 +80,9 @@ function StatsPage() {
           <h1 className="text-2xl font-bold md:text-3xl">Stats</h1>
           <p className="text-sm text-muted-foreground">Performance across your saved bets.</p>
         </div>
-        <button className="btn-secondary"><Download className="h-4 w-4" /> Export CSV</button>
+        <button className="btn-secondary">
+          <Download className="h-4 w-4" /> Export CSV
+        </button>
       </div>
 
       {/* Period tabs */}
@@ -79,7 +93,9 @@ function StatsPage() {
             onClick={() => setPeriod(p.key)}
             className={cn(
               "rounded-md px-4 py-2 text-sm font-medium",
-              period === p.key ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-accent"
+              period === p.key
+                ? "bg-primary text-primary-foreground"
+                : "text-foreground hover:bg-accent",
             )}
           >
             {p.label}
@@ -97,7 +113,12 @@ function StatsPage() {
           value={`${s.netProfit >= 0 ? "+" : ""}$${fmt(s.netProfit)}`}
           tone={s.netProfit >= 0 ? "success" : "danger"}
         />
-        <Metric icon={Percent} label="ROI (settled)" value={`${fmt(s.roi)}%`} tone={s.roi >= 0 ? "success" : "danger"} />
+        <Metric
+          icon={Percent}
+          label="ROI (settled)"
+          value={`${fmt(s.roi)}%`}
+          tone={s.roi >= 0 ? "success" : "danger"}
+        />
         <Metric icon={DollarSign} label="Returns (settled)" value={`$${fmt(s.returns)}`} />
         <Metric icon={DollarSign} label="Pending exposure" value={`$${fmt(s.pendingExposure)}`} />
         <Metric icon={TrendingUp} label="Wins / Losses" value={`${s.wins} / ${s.losses}`} />
@@ -107,38 +128,49 @@ function StatsPage() {
       {/* Charts */}
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
         <div className="card">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Amount staked per day</h3>
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Amount staked per day
+          </h3>
           <div className="flex h-40 items-end gap-2">
             {dailyStake.length === 0 ? (
-              <div className="w-full self-center text-center text-sm text-muted-foreground">No activity in this period.</div>
-            ) : dailyStake.map(([d, v]) => (
-              <div key={d} className="flex flex-1 flex-col items-center gap-1">
-                <div className="flex w-full flex-1 items-end">
-                  <div
-                    className="w-full rounded-t bg-primary transition-all"
-                    style={{ height: `${(v / maxStake) * 100}%` }}
-                    title={`$${fmt(v)}`}
-                  />
-                </div>
-                <div className="text-[10px] text-muted-foreground">{d}</div>
+              <div className="w-full self-center text-center text-sm text-muted-foreground">
+                No activity in this period.
               </div>
-            ))}
+            ) : (
+              dailyStake.map(([d, v]) => (
+                <div key={d} className="flex flex-1 flex-col items-center gap-1">
+                  <div className="flex w-full flex-1 items-end">
+                    <div
+                      className="w-full rounded-t bg-primary transition-all"
+                      style={{ height: `${(v / maxStake) * 100}%` }}
+                      title={`$${fmt(v)}`}
+                    />
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">{d}</div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
         <div className="card">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Win rate</h3>
+          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            Win rate
+          </h3>
           <div className="flex items-center gap-6">
             <DoughnutMock wins={s.wins} losses={s.losses} />
             <div className="space-y-2 text-sm">
               <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full bg-success" /> Won: <span className="font-semibold">{s.wins}</span>
+                <span className="h-3 w-3 rounded-full bg-success" /> Won:{" "}
+                <span className="font-semibold">{s.wins}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full bg-destructive" /> Lost: <span className="font-semibold">{s.losses}</span>
+                <span className="h-3 w-3 rounded-full bg-destructive" /> Lost:{" "}
+                <span className="font-semibold">{s.losses}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full bg-warning" /> Pending: <span className="font-semibold">{s.pending}</span>
+                <span className="h-3 w-3 rounded-full bg-warning" /> Pending:{" "}
+                <span className="font-semibold">{s.pending}</span>
               </div>
             </div>
           </div>
@@ -168,10 +200,24 @@ function StatsPage() {
                   <td className="p-3 font-medium">{t.team}</td>
                   <td className="p-3 text-right font-mono">{t.bets}</td>
                   <td className="p-3 text-right font-mono">${fmt(t.staked)}</td>
-                  <td className={cn("p-3 text-right font-mono font-semibold", t.net >= 0 ? "text-success" : "text-destructive")}>
+                  <td
+                    className={cn(
+                      "p-3 text-right font-mono font-semibold",
+                      t.net >= 0 ? "text-success" : "text-destructive",
+                    )}
+                  >
                     {t.net >= 0 ? "+" : ""}${fmt(t.net)}
                   </td>
-                  <td className={cn("p-3 text-right font-mono", t.settled ? (t.roi >= 0 ? "text-success" : "text-destructive") : "text-muted-foreground")}>
+                  <td
+                    className={cn(
+                      "p-3 text-right font-mono",
+                      t.settled
+                        ? t.roi >= 0
+                          ? "text-success"
+                          : "text-destructive"
+                        : "text-muted-foreground",
+                    )}
+                  >
                     {t.settled ? `${fmt(t.roi)}%` : "—"}
                   </td>
                   <td className="p-3 text-right font-mono">
@@ -204,23 +250,40 @@ function StatsPage() {
             <tbody>
               {s.bets.map((b) => (
                 <tr key={b.id} className="border-t border-border">
-                  <td className="p-3 text-xs text-muted-foreground">{new Date(b.savedAt).toLocaleDateString()}</td>
+                  <td className="p-3 text-xs text-muted-foreground">{formatDate(b.savedAt)}</td>
                   <td className="p-3">
                     <div className="font-medium">{b.title}</div>
                     <div className="text-xs text-muted-foreground">{b.participants.join(", ")}</div>
                   </td>
                   <td className="p-3 text-right font-mono">${fmt(b.totalStake)}</td>
-                  <td className="p-3 text-right font-mono">{b.status === "Pending" ? "—" : `$${fmt(b.returned ?? 0)}`}</td>
-                  <td className={cn("p-3 text-right font-mono font-semibold",
-                    b.status === "Pending" ? "text-muted-foreground" : (b.netProfit ?? 0) >= 0 ? "text-success" : "text-destructive")}>
-                    {b.status === "Pending" ? "—" : `${(b.netProfit ?? 0) >= 0 ? "+" : ""}$${fmt(b.netProfit ?? 0)}`}
+                  <td className="p-3 text-right font-mono">
+                    {b.status === "Pending" ? "—" : `$${fmt(b.returned ?? 0)}`}
+                  </td>
+                  <td
+                    className={cn(
+                      "p-3 text-right font-mono font-semibold",
+                      b.status === "Pending"
+                        ? "text-muted-foreground"
+                        : (b.netProfit ?? 0) >= 0
+                          ? "text-success"
+                          : "text-destructive",
+                    )}
+                  >
+                    {b.status === "Pending"
+                      ? "—"
+                      : `${(b.netProfit ?? 0) >= 0 ? "+" : ""}$${fmt(b.netProfit ?? 0)}`}
                   </td>
                   <td className="p-3 text-center">
-                    <span className={cn("rounded-full px-2 py-0.5 text-xs font-bold",
-                      b.status === "Won" && "bg-success/15 text-success",
-                      b.status === "Lost" && "bg-destructive/15 text-destructive",
-                      b.status === "Pending" && "bg-warning/15 text-warning-foreground",
-                    )}>{b.status}</span>
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-xs font-bold",
+                        b.status === "Won" && "bg-success/15 text-success",
+                        b.status === "Lost" && "bg-destructive/15 text-destructive",
+                        b.status === "Pending" && "bg-warning/15 text-warning-foreground",
+                      )}
+                    >
+                      {b.status}
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -246,17 +309,27 @@ function Metric({
   return (
     <div className="card">
       <div className="flex items-center justify-between">
-        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
-        <Icon className={cn("h-4 w-4",
+        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {label}
+        </div>
+        <Icon
+          className={cn(
+            "h-4 w-4",
+            tone === "success" && "text-success",
+            tone === "danger" && "text-destructive",
+            tone === "default" && "text-primary",
+          )}
+        />
+      </div>
+      <div
+        className={cn(
+          "mt-1 text-lg font-bold md:text-xl",
           tone === "success" && "text-success",
           tone === "danger" && "text-destructive",
-          tone === "default" && "text-primary",
-        )} />
+        )}
+      >
+        {value}
       </div>
-      <div className={cn("mt-1 text-lg font-bold md:text-xl",
-        tone === "success" && "text-success",
-        tone === "danger" && "text-destructive",
-      )}>{value}</div>
     </div>
   );
 }

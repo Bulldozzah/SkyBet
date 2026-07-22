@@ -29,7 +29,7 @@ import {
   type ComboResult,
   type ScanMode,
 } from "@/lib/scanner";
-import { DEMO_GAMES } from "@/lib/demo-odds";
+import { getDemoGames } from "@/lib/demo-odds";
 import { fmt } from "@/lib/calculator";
 
 export const Route = createFileRoute("/scanner")({
@@ -188,7 +188,10 @@ function ScannerPage() {
   const [dateTo, setDateTo] = useState("");
 
   const [scanTab, setScanTab] = useState<ScanTab>("league");
-  const [scanDate, setScanDate] = useState(() => localDay(new Date()));
+  // Left empty for the server render: "today" depends on the viewer's timezone,
+  // so seeding it here would disagree with the client and break hydration.
+  // The mount effect below fills it in.
+  const [scanDate, setScanDate] = useState("");
   const [selLeagues, setSelLeagues] = useState<string[]>(["soccer_epl"]);
   const [dateGames, setDateGames] = useState<Game[] | null>(null);
   const [dateScannedAt, setDateScannedAt] = useState<number | null>(null);
@@ -217,7 +220,8 @@ function ScannerPage() {
     if (c.dateFrom) setDateFrom(c.dateFrom);
     if (c.dateTo) setDateTo(c.dateTo);
     if (c.scanTab) setScanTab(c.scanTab);
-    if (c.scanDate) setScanDate(c.scanDate);
+    // Cached choice wins; otherwise default to the viewer's local today.
+    setScanDate(c.scanDate || localDay(new Date()));
     if (c.selLeagues) setSelLeagues(c.selLeagues);
     if (c.dateGames) setDateGames(c.dateGames);
     if (c.dateScannedAt) setDateScannedAt(c.dateScannedAt);
@@ -323,7 +327,7 @@ function ScannerPage() {
 
   const scanDemo = () => {
     setError("");
-    setGames(DEMO_GAMES);
+    setGames(getDemoGames());
     setSource("demo");
     setScannedAt(Date.now());
   };
@@ -333,6 +337,7 @@ function ScannerPage() {
    * game with its league, and merge — pairing then works across leagues.
    */
   const scanByDate = async () => {
+    if (!scanDate) return; // still hydrating; the date input has no value yet
     if (selLeagues.length === 0) {
       setError("Select at least one league to scan.");
       return;
@@ -653,7 +658,7 @@ function ScannerPage() {
         <div className="flex items-end gap-2 md:col-span-4">
           <button
             onClick={() => void (scanTab === "league" ? scanLive() : scanByDate())}
-            disabled={!hasKey || busy}
+            disabled={!hasKey || busy || (scanTab === "date" && !scanDate)}
             className="btn-primary disabled:opacity-60"
           >
             <RefreshCw className={cn("h-4 w-4", busy && "animate-spin")} />
