@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { scenarioIndices, fmt } from "@/lib/betmaster-data";
-import { Save, Download, RotateCcw, Scale, Target, ChevronUp, ChevronDown } from "lucide-react";
+import { Save, Download, RotateCcw, Scale, Target, Triangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/calculator")({
@@ -283,13 +283,9 @@ function CalculatorPage() {
                       {r.stake === 0 ? (
                         <span className="text-xs text-muted-foreground">—</span>
                       ) : covered ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-xs font-semibold text-success">
-                          <ChevronUp className="h-3 w-3" /> Covered
-                        </span>
+                        <Triangle className="mx-auto h-5 w-5 fill-success text-success" />
                       ) : (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-destructive/15 px-2 py-0.5 text-xs font-semibold text-destructive">
-                          <ChevronDown className="h-3 w-3" /> Loss
-                        </span>
+                        <Triangle className="mx-auto h-5 w-5 rotate-180 fill-destructive text-destructive" />
                       )}
                     </td>
                     <td className={cn("p-3 text-right font-mono", profit >= 0 ? "text-success" : "text-destructive")}>
