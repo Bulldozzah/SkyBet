@@ -298,17 +298,6 @@ function CalculatorPage() {
         </div>
       </div>
 
-      {/* Live counters */}
-      <div className="mb-4 grid grid-cols-3 gap-3">
-        <StatCard label="Budget" value={fmt(toNumber(targetStake))} />
-        <StatCard label="Total stake" value={fmt(totalStake)} />
-        <StatCard
-          label="Remaining"
-          value={fmt(remaining)}
-          tone={remaining < 0 ? "danger" : "success"}
-        />
-      </div>
-
       {/*
         Two columns on desktop: controls on the left, scenario table on the
         right. Below `lg` the grid collapses to one column and DOM order puts
@@ -336,6 +325,36 @@ function CalculatorPage() {
                 ))}
               </select>
             </div>
+
+            {/*
+              Live totals. Read-only, so they sit on the muted surface to
+              separate them from the editable fields underneath.
+            */}
+            <div
+              aria-live="polite"
+              className="grid grid-cols-2 gap-3 rounded-md bg-secondary px-3 py-2"
+            >
+              <div>
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Total stake
+                </div>
+                <div className="mt-0.5 text-xl font-bold">{fmt(totalStake)}</div>
+              </div>
+              <div>
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Remaining
+                </div>
+                <div
+                  className={cn(
+                    "mt-0.5 text-xl font-bold",
+                    remaining < 0 ? "text-destructive" : "text-success",
+                  )}
+                >
+                  {fmt(remaining)}
+                </div>
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="label" htmlFor="budget">
@@ -666,32 +685,5 @@ function CalculatorPage() {
         </section>
       </div>
     </AppShell>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  tone = "default",
-}: {
-  label: string;
-  value: string;
-  tone?: "default" | "danger" | "success";
-}) {
-  return (
-    <div className="card">
-      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
-      <div
-        className={cn(
-          "mt-1 text-lg font-bold md:text-2xl",
-          tone === "danger" && "text-destructive",
-          tone === "success" && "text-success",
-        )}
-      >
-        {value}
-      </div>
-    </div>
   );
 }
