@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { scenarioIndices, fmt } from "@/lib/betmaster-data";
-import { Save, Download, RotateCcw, Scale, Target, ChevronUp, ChevronDown } from "lucide-react";
+import { Save, Download, RotateCcw, Scale, Target, Triangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/calculator")({
