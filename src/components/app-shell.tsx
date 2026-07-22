@@ -12,6 +12,7 @@ import {
   ChevronLeft,
   ChevronRight,
   LogOut,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -22,6 +23,8 @@ const nav = [
   { to: "/scanner", label: "Scanner", icon: Radar },
   { to: "/my-bets", label: "My Bets", icon: Wallet },
   { to: "/stats", label: "Stats", icon: BarChart3 },
+  // Only rendered for administrators — see `visibleNav` below.
+  { to: "/admin", label: "Admin", icon: ShieldCheck, adminOnly: true },
 ];
 
 /** Up to two initials from the display name, e.g. "Abel Chilungu" -> "AC". */
@@ -54,6 +57,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     await signOut();
     void navigate({ to: "/login", replace: true });
   };
+
+  // Hiding the link is presentation only — /admin is guarded server-side of the
+  // UI by ProtectedRoute and by row-level security on the profiles table.
+  const visibleNav = nav.filter((item) => !item.adminOnly || isAdmin);
 
   const sidebarWidth = collapsed ? "md:w-16" : "md:w-60";
   const mainPad = collapsed ? "md:pl-16" : "md:pl-60";
@@ -103,7 +110,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
         </div>
         <nav className={cn("flex-1 space-y-1", collapsed ? "px-2" : "px-3")}>
-          {nav.map((item) => {
+          {visibleNav.map((item) => {
             const Icon = item.icon;
             const active = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
             return (
@@ -180,7 +187,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <TrendingUp className="h-5 w-5" /> BetMaster
             </div>
             <nav className="space-y-1">
-              {nav.map((item) => {
+              {visibleNav.map((item) => {
                 const Icon = item.icon;
                 const active = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
                 return (

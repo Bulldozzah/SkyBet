@@ -69,6 +69,19 @@
   --sidebar-foreground: oklch(0.25 0.05 240);
   --sidebar-accent: oklch(0.96 0.02 240);
   --sidebar-border: oklch(0.91 0.01 240);
+
+  /* Chart marks. Separate from the UI tokens so they can be snapped to the
+     lightness band that keeps them legible on the chart surface in each mode.
+     Light-mode values pass all palette checks against a white surface.
+     --chart-pos / --chart-neg are a *status* pair (good/bad): green vs red is
+     inherently indistinguishable under deuteranopia, so every use of them must
+     also encode polarity without colour — bars sit above/below a zero
+     baseline, and the donut carries a legend, counts and a hatch texture. */
+  --chart-data: oklch(0.62 0.15 235);
+  --chart-pos: oklch(0.62 0.16 155);
+  --chart-neg: oklch(0.6 0.22 25);
+  --chart-grid: oklch(0.91 0.01 240);
+  --chart-axis: oklch(0.82 0.02 240);
 }
 
 .dark {
@@ -99,6 +112,15 @@
   --sidebar-foreground: oklch(0.96 0.01 230);
   --sidebar-accent: oklch(0.28 0.05 240);
   --sidebar-border: oklch(0.28 0.03 240);
+
+  /* Dark mode is stepped separately, not flipped: the dark band is tighter
+     (L 0.48–0.67), so the UI tokens would sit slightly too light on the card
+     surface. These are snapped into the band and validated against it. */
+  --chart-data: oklch(0.66 0.14 235);
+  --chart-pos: oklch(0.64 0.16 155);
+  --chart-neg: oklch(0.62 0.21 25);
+  --chart-grid: oklch(0.30 0.03 240);
+  --chart-axis: oklch(0.38 0.03 240);
 }
 
 @layer base {
