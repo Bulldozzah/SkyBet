@@ -41,34 +41,34 @@
 
 :root {
   --radius: 0.625rem;
-  /* Sky blue palette */
-  --background: oklch(0.985 0.012 230);
-  --foreground: oklch(0.22 0.04 240);
+  /* Clean white theme with sky-blue accents */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.20 0.02 240);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.22 0.04 240);
+  --card-foreground: oklch(0.20 0.02 240);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.22 0.04 240);
+  --popover-foreground: oklch(0.20 0.02 240);
   --primary: oklch(0.62 0.15 235);
   --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.94 0.03 230);
-  --secondary-foreground: oklch(0.30 0.08 240);
-  --muted: oklch(0.96 0.015 230);
-  --muted-foreground: oklch(0.48 0.03 240);
-  --accent: oklch(0.90 0.05 225);
-  --accent-foreground: oklch(0.25 0.08 240);
+  --secondary: oklch(0.97 0.01 240);
+  --secondary-foreground: oklch(0.30 0.05 240);
+  --muted: oklch(0.97 0.01 240);
+  --muted-foreground: oklch(0.50 0.02 240);
+  --accent: oklch(0.94 0.03 230);
+  --accent-foreground: oklch(0.25 0.06 240);
   --destructive: oklch(0.60 0.22 25);
   --destructive-foreground: oklch(1 0 0);
   --success: oklch(0.62 0.16 155);
   --success-foreground: oklch(1 0 0);
   --warning: oklch(0.75 0.15 75);
   --warning-foreground: oklch(0.25 0.05 60);
-  --border: oklch(0.90 0.02 230);
-  --input: oklch(0.92 0.02 230);
+  --border: oklch(0.91 0.01 240);
+  --input: oklch(0.93 0.01 240);
   --ring: oklch(0.62 0.15 235);
-  --sidebar: oklch(0.98 0.015 230);
+  --sidebar: oklch(1 0 0);
   --sidebar-foreground: oklch(0.25 0.05 240);
-  --sidebar-accent: oklch(0.92 0.04 230);
-  --sidebar-border: oklch(0.88 0.02 230);
+  --sidebar-accent: oklch(0.96 0.02 240);
+  --sidebar-border: oklch(0.91 0.01 240);
 }
 
 .dark {
@@ -118,7 +118,7 @@
   background-color: var(--color-card);
   color: var(--color-card-foreground);
   padding: 1rem;
-  box-shadow: 0 1px 2px 0 color-mix(in oklab, var(--color-primary) 5%, transparent);
+  box-shadow: 0 1px 2px 0 color-mix(in oklab, oklch(0.5 0.01 240) 6%, transparent);
 }
 
 @utility input {
