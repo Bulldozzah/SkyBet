@@ -7,7 +7,7 @@ export const Route = createFileRoute("/")({
       { title: "BetMaster — Cover Betting Planner" },
       { name: "description", content: "Split your budget across every possible outcome. Scan live odds for profitable combinations. Track every bet." },
       { property: "og:title", content: "BetMaster — Cover Betting Planner" },
-      { property: "og:description", content: "Cover-betting planner: calculate stakes, scan odds, record results." },
+      { property: "og:description", content: "Split your budget across every possible outcome. Scan live odds for profitable combinations. Track every bet." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],

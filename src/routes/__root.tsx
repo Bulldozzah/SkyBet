@@ -77,14 +77,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
+      { title: "BetMaster — Cover Betting Planner" },
+      { name: "description", content: "Split your budget across every possible outcome. Scan live odds for profitable combinations. Track every bet." },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { property: "og:title", content: "BetMaster — Cover Betting Planner" },
+      { property: "og:description", content: "Split your budget across every possible outcome. Scan live odds for profitable combinations. Track every bet." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "BetMaster — Cover Betting Planner" },
+      { name: "twitter:description", content: "Split your budget across every possible outcome. Scan live odds for profitable combinations. Track every bet." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/024e0925-204d-46fb-bbbf-31c1744eddfd/id-preview-c026c8ab--3a952eb8-6fd0-4a33-96f2-a8d22524b854.lovable.app-1784723223571.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/024e0925-204d-46fb-bbbf-31c1744eddfd/id-preview-c026c8ab--3a952eb8-6fd0-4a33-96f2-a8d22524b854.lovable.app-1784723223571.png" },
     ],
     links: [
       {
