@@ -1,4 +1,4 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import {
   Calculator,
@@ -11,8 +11,10 @@ import {
   TrendingUp,
   ChevronLeft,
   ChevronRight,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth";
 
 const nav = [
   { to: "/", label: "Home", icon: Home },
@@ -22,10 +24,36 @@ const nav = [
   { to: "/stats", label: "Stats", icon: BarChart3 },
 ];
 
+/** Up to two initials from the display name, e.g. "Abel Chilungu" -> "AC". */
+const initialsOf = (source: string) =>
+  source
+    .split(/[\s@._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((s) => s[0]!.toUpperCase())
+    .join("") || "?";
+
 export function AppShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { user, profile, isAdmin, isApproved, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const displayName = profile?.full_name || user?.email || "Guest";
+  const roleLabel = !user
+    ? "Signed out"
+    : isAdmin
+      ? "Administrator"
+      : isApproved
+        ? "Member"
+        : "Pending";
+
+  const handleSignOut = async () => {
+    setOpen(false);
+    await signOut();
+    void navigate({ to: "/login", replace: true });
+  };
 
   const sidebarWidth = collapsed ? "md:w-16" : "md:w-60";
   const mainPad = collapsed ? "md:pl-16" : "md:pl-60";
@@ -51,13 +79,13 @@ export function AppShell({ children }: { children: ReactNode }) {
       <aside
         className={cn(
           "fixed inset-y-0 left-0 z-20 hidden flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200 md:flex",
-          sidebarWidth
+          sidebarWidth,
         )}
       >
         <div
           className={cn(
             "relative flex items-center px-4 py-5 text-lg font-bold text-primary",
-            collapsed ? "justify-center px-2" : "gap-2"
+            collapsed ? "justify-center px-2" : "gap-2",
           )}
         >
           <TrendingUp className="h-6 w-6 shrink-0" />
@@ -88,7 +116,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   collapsed ? "justify-center px-2 py-2" : "gap-3 px-3 py-2",
                   active
                     ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent"
+                    : "text-sidebar-foreground hover:bg-sidebar-accent",
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" />
@@ -98,26 +126,52 @@ export function AppShell({ children }: { children: ReactNode }) {
           })}
         </nav>
         <div className={cn("border-t border-sidebar-border", collapsed ? "p-2" : "p-4")}>
-          <div className={cn("flex items-center", collapsed ? "justify-center" : "gap-3")}>
+          <div
+            className={cn("flex items-center", collapsed ? "justify-center" : "gap-3")}
+            title={displayName}
+          >
             <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
-              JD
+              {initialsOf(displayName)}
             </div>
             {!collapsed && (
               <div className="min-w-0">
-                <div className="truncate text-sm font-medium">John Doe</div>
-                <div className="text-xs text-muted-foreground">Approved</div>
+                <div className="truncate text-sm font-medium">{displayName}</div>
+                <div className="text-xs text-muted-foreground">{roleLabel}</div>
               </div>
             )}
           </div>
+
+          {user ? (
+            <button
+              onClick={() => void handleSignOut()}
+              title={collapsed ? "Sign out" : undefined}
+              className={cn(
+                "mt-3 flex w-full items-center rounded-lg text-sm font-medium text-sidebar-foreground transition hover:bg-sidebar-accent",
+                collapsed ? "justify-center px-2 py-2" : "gap-3 px-3 py-2",
+              )}
+            >
+              <LogOut className="h-4 w-4 shrink-0" />
+              {!collapsed && <span>Sign out</span>}
+            </button>
+          ) : (
+            <Link
+              to="/login"
+              title={collapsed ? "Log in" : undefined}
+              className={cn(
+                "mt-3 flex w-full items-center rounded-lg text-sm font-medium text-sidebar-foreground transition hover:bg-sidebar-accent",
+                collapsed ? "justify-center px-2 py-2" : "gap-3 px-3 py-2",
+              )}
+            >
+              <LogOut className="h-4 w-4 shrink-0 rotate-180" />
+              {!collapsed && <span>Log in</span>}
+            </Link>
+          )}
         </div>
       </aside>
 
       {/* Mobile drawer */}
       {open && (
-        <div
-          className="fixed inset-0 z-40 bg-black/40 md:hidden"
-          onClick={() => setOpen(false)}
-        >
+        <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setOpen(false)}>
           <aside
             className="absolute left-0 top-0 h-full w-64 bg-sidebar p-4 shadow-xl"
             onClick={(e) => e.stopPropagation()}
@@ -138,7 +192,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                       "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium",
                       active
                         ? "bg-primary text-primary-foreground"
-                        : "text-sidebar-foreground hover:bg-sidebar-accent"
+                        : "text-sidebar-foreground hover:bg-sidebar-accent",
                     )}
                   >
                     <Icon className="h-4 w-4" />

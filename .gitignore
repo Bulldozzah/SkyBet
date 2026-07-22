@@ -16,6 +16,14 @@ dist-ssr
 .nitro
 *.local
 
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# bun.lock is authoritative (Lovable builds from it); npm lock is local only
+package-lock.json
+
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars
