@@ -1,13 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { AuthShell, Alert } from "@/components/auth-shell";
+import { Mail, Lock, User } from "lucide-react";
+import { AuthShell, Alert, IconField, PillButton } from "@/components/auth-shell";
 
 export const Route = createFileRoute("/register")({
   head: () => ({
     meta: [
-      { title: "Create account — BetMaster" },
-      { name: "description", content: "Register to request access to the BetMaster calculator." },
+      { title: "Create account — SkyBet" },
+      { name: "description", content: "Register to request access to the SkyBet calculator." },
     ],
   }),
   component: RegisterPage,
@@ -50,8 +51,11 @@ function RegisterPage() {
           </>
         }
       >
-        <Link to="/login" className="btn-primary w-full justify-center">
-          Go to login
+        <Link
+          to="/login"
+          className="flex h-12 w-full items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90"
+        >
+          Go to sign in
         </Link>
       </AuthShell>
     );
@@ -62,65 +66,54 @@ function RegisterPage() {
       {error && <Alert tone="error">{error}</Alert>}
 
       <form onSubmit={submit} className="space-y-4">
-        <div>
-          <label className="label" htmlFor="fullName">
-            Full name
-          </label>
-          <input
-            id="fullName"
-            type="text"
-            required
-            autoComplete="name"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            className="input"
-          />
-        </div>
+        <IconField
+          id="fullName"
+          icon={User}
+          label="Full name"
+          type="text"
+          placeholder="Full name"
+          autoComplete="name"
+          required
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
+        />
 
-        <div>
-          <label className="label" htmlFor="email">
-            Email
-          </label>
-          <input
-            id="email"
-            type="email"
-            required
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="input"
-          />
-        </div>
+        <IconField
+          id="email"
+          icon={Mail}
+          label="Email address"
+          type="email"
+          placeholder="Email address"
+          autoComplete="email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
 
-        <div>
-          <label className="label" htmlFor="password">
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            required
-            minLength={6}
-            autoComplete="new-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="input"
-          />
-        </div>
+        <IconField
+          id="password"
+          icon={Lock}
+          label="Password"
+          type="password"
+          placeholder="Password (6+ characters)"
+          autoComplete="new-password"
+          minLength={6}
+          required
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
 
-        <button
-          type="submit"
-          disabled={busy}
-          className="btn-primary w-full justify-center disabled:opacity-60"
-        >
-          {busy ? "Creating…" : "Join now"}
-        </button>
+        <div className="pt-1">
+          <PillButton type="submit" disabled={busy}>
+            {busy ? "Creating…" : "Create account"}
+          </PillButton>
+        </div>
       </form>
 
-      <p className="mt-5 text-sm text-muted-foreground">
+      <p className="mt-6 text-center text-sm text-muted-foreground">
         Already have an account?{" "}
-        <Link to="/login" className="text-primary hover:underline">
-          Log in
+        <Link to="/login" className="font-medium text-primary hover:underline">
+          Sign in
         </Link>
       </p>
     </AuthShell>

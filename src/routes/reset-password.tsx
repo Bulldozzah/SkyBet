@@ -1,13 +1,14 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { AuthShell, Alert } from "@/components/auth-shell";
+import { Mail, Lock } from "lucide-react";
+import { AuthShell, Alert, IconField, PillButton } from "@/components/auth-shell";
 
 export const Route = createFileRoute("/reset-password")({
   head: () => ({
     meta: [
-      { title: "Reset password — BetMaster" },
-      { name: "description", content: "Reset your BetMaster password." },
+      { title: "Reset password — SkyBet" },
+      { name: "description", content: "Reset your SkyBet password." },
     ],
   }),
   component: ResetPasswordPage,
@@ -65,50 +66,40 @@ function ResetPasswordPage() {
 
       <form onSubmit={mode === "request" ? sendReset : updatePassword} className="space-y-4">
         {mode === "request" ? (
-          <div>
-            <label className="label" htmlFor="email">
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              required
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="input"
-            />
-          </div>
+          <IconField
+            id="email"
+            icon={Mail}
+            label="Email address"
+            type="email"
+            placeholder="Email address"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
         ) : (
-          <div>
-            <label className="label" htmlFor="newPassword">
-              New password
-            </label>
-            <input
-              id="newPassword"
-              type="password"
-              required
-              minLength={6}
-              autoComplete="new-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="input"
-            />
-          </div>
+          <IconField
+            id="newPassword"
+            icon={Lock}
+            label="New password"
+            type="password"
+            placeholder="New password (6+ characters)"
+            autoComplete="new-password"
+            minLength={6}
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
         )}
 
-        <button
-          type="submit"
-          disabled={busy}
-          className="btn-primary w-full justify-center disabled:opacity-60"
-        >
+        <PillButton type="submit" disabled={busy}>
           {busy ? "Working…" : mode === "request" ? "Send reset link" : "Update password"}
-        </button>
+        </PillButton>
       </form>
 
-      <p className="mt-5 text-sm">
-        <Link to="/login" className="text-primary hover:underline">
-          Back to login
+      <p className="mt-6 text-center text-sm text-muted-foreground">
+        <Link to="/login" className="font-medium text-primary hover:underline">
+          Back to sign in
         </Link>
       </p>
     </AuthShell>

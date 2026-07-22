@@ -2,14 +2,14 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
-import { AuthShell, Alert } from "@/components/auth-shell";
+import { AuthShell, Alert, PillButton } from "@/components/auth-shell";
 import { RouteSpinner } from "@/components/protected-route";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pending")({
   head: () => ({
     meta: [
-      { title: "Awaiting approval — BetMaster" },
+      { title: "Awaiting approval — SkyBet" },
       { name: "description", content: "Upload your proof of payment to unlock the calculator." },
     ],
   }),
@@ -79,7 +79,7 @@ function PendingPage() {
       subtitle={
         rejected
           ? "Your request was not approved. You can upload a new proof of payment to try again."
-          : `Hi ${profile?.full_name || user.email}. To use the BetMaster calculator, upload your proof of payment. An admin will review and approve your access.`
+          : `Hi ${profile?.full_name || user.email}. To use the SkyBet calculator, upload your proof of payment. An admin will review and approve your access.`
       }
     >
       <span
@@ -118,13 +118,9 @@ function PendingPage() {
           />
         </div>
 
-        <button
-          type="submit"
-          disabled={busy || !file}
-          className="btn-primary w-full justify-center disabled:opacity-60"
-        >
+        <PillButton type="submit" disabled={busy || !file}>
           {busy ? "Uploading…" : "Upload proof"}
-        </button>
+        </PillButton>
       </form>
 
       <div className="mt-5 flex justify-between text-sm">

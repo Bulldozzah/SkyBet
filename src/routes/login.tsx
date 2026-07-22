@@ -1,14 +1,15 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { Mail, Lock } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
-import { AuthShell, Alert } from "@/components/auth-shell";
+import { AuthShell, Alert, IconField, PillButton } from "@/components/auth-shell";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
     meta: [
-      { title: "Log in — BetMaster" },
-      { name: "description", content: "Log in to your BetMaster account." },
+      { title: "Sign in — SkyBet" },
+      { name: "description", content: "Sign in to your SkyBet account." },
     ],
   }),
   component: LoginPage,
@@ -45,60 +46,51 @@ function LoginPage() {
   };
 
   return (
-    <AuthShell title="Welcome back" subtitle="Log in to your BetMaster account.">
+    <AuthShell title="Sign in" subtitle="Welcome back! Please sign in to continue.">
       {error && <Alert tone="error">{error}</Alert>}
 
       <form onSubmit={submit} className="space-y-4">
-        <div>
-          <label className="label" htmlFor="email">
-            Email
-          </label>
-          <input
-            id="email"
-            type="email"
-            required
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="input"
-          />
+        <IconField
+          id="email"
+          icon={Mail}
+          label="Email address"
+          type="email"
+          placeholder="Email address"
+          autoComplete="email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+
+        <IconField
+          id="password"
+          icon={Lock}
+          label="Password"
+          type="password"
+          placeholder="Password"
+          autoComplete="current-password"
+          required
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+
+        <div className="flex justify-end pt-1">
+          <Link to="/reset-password" className="text-sm text-primary hover:underline">
+            Forgot password?
+          </Link>
         </div>
 
-        <div>
-          <label className="label" htmlFor="password">
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            required
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="input"
-          />
-        </div>
-
-        <button
-          type="submit"
-          disabled={busy}
-          className="btn-primary w-full justify-center disabled:opacity-60"
-        >
-          {busy ? "Signing in…" : "Log in"}
-        </button>
+        <PillButton type="submit" disabled={busy}>
+          {busy ? "Signing in…" : "Sign in"}
+        </PillButton>
       </form>
 
-      <div className="mt-5 flex flex-col gap-1 text-sm text-muted-foreground">
-        <Link to="/reset-password" className="text-primary hover:underline">
-          Forgot password?
+      <p className="mt-6 text-center text-sm text-muted-foreground">
+        Don’t have an account?{" "}
+        <Link to="/register" className="font-medium text-primary hover:underline">
+          Sign up
         </Link>
-        <span>
-          No account?{" "}
-          <Link to="/register" className="text-primary hover:underline">
-            Join now
-          </Link>
-        </span>
-      </div>
+      </p>
     </AuthShell>
   );
 }
