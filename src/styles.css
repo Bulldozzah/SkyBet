@@ -4,6 +4,22 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@theme {
+  /* Bumped ~8-12% over Tailwind's defaults (12/14/16/18/20px) — the dense
+     tables and control rows were reading small at default sizes. Line-height
+     ratios are kept close to the originals. */
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.125rem;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.3125rem;
+  --text-base: 1.0625rem;
+  --text-base--line-height: 1.5625rem;
+  --text-lg: 1.1875rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.3125rem;
+  --text-xl--line-height: 1.8125rem;
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -131,6 +147,7 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    font-weight: 500;
   }
 }
 
@@ -150,7 +167,8 @@
   border: 1px solid var(--color-input);
   background-color: var(--color-background);
   padding: 0.5rem 0.75rem;
-  font-size: 0.875rem;
+  font-size: var(--text-sm);
+  font-weight: 500;
   color: var(--color-foreground);
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
@@ -163,8 +181,8 @@
 @utility label {
   display: block;
   margin-bottom: 0.35rem;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--color-muted-foreground);
@@ -178,8 +196,8 @@
   background-color: var(--color-primary);
   color: var(--color-primary-foreground);
   padding: 0.5rem 1rem;
-  font-size: 0.875rem;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: 700;
   transition: background-color 0.15s;
   box-shadow: 0 1px 2px 0 color-mix(in oklab, var(--color-primary) 30%, transparent);
   &:hover { background-color: color-mix(in oklab, var(--color-primary) 90%, black); }
@@ -194,8 +212,8 @@
   background-color: var(--color-card);
   color: var(--color-foreground);
   padding: 0.5rem 1rem;
-  font-size: 0.875rem;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: 700;
   transition: background-color 0.15s;
   &:hover { background-color: var(--color-accent); }
 }
@@ -206,8 +224,8 @@
   gap: 0.5rem;
   border-radius: var(--radius-md);
   padding: 0.5rem 1rem;
-  font-size: 0.875rem;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: 700;
   transition: background-color 0.15s;
   &:hover { background-color: var(--color-accent); }
 }
