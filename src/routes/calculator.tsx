@@ -385,6 +385,37 @@ function CalculatorPage() {
             </div>
           </div>
 
+          {/*
+            Balancing — one row. Labels are short so all three controls fit
+            across a 300px column; the full explanation lives in each title.
+          */}
+          <div className="card flex items-center gap-2">
+            <button
+              onClick={balanceProfit}
+              className="btn-primary shrink-0 gap-1.5 px-3 text-xs"
+              title="Balance: redistribute the budget so every included scenario returns the same profit"
+            >
+              <Scale className="h-3.5 w-3.5" /> Balance
+            </button>
+            <button
+              onClick={balanceWin}
+              className="btn-secondary shrink-0 gap-1.5 px-3 text-xs"
+              title="Balance win: set every included scenario's Total win to the amount on the right — any unused budget stays in Remaining"
+            >
+              <Target className="h-3.5 w-3.5" /> Balance win
+            </button>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              placeholder="Total win"
+              value={targetWin}
+              onChange={(e) => setTargetWin(e.target.value)}
+              aria-label="Target total win"
+              className="input min-w-0 flex-1 px-2 text-sm"
+            />
+          </div>
+
           {/* Event-count tabs */}
           <div className="flex rounded-lg border border-border bg-card p-1" role="tablist">
             {TEAM_TABS.map((n) => (
@@ -479,36 +510,6 @@ function CalculatorPage() {
                   </div>
                 );
               })}
-            </div>
-          </div>
-
-          {/* Balancing */}
-          <div className="card space-y-3">
-            <h2 className="font-semibold">Balancing</h2>
-            <button
-              onClick={balanceProfit}
-              className="btn-primary w-full justify-center"
-              title="Redistribute the budget so every included scenario has the same profit"
-            >
-              <Scale className="h-4 w-4" /> Balance (equal profit)
-            </button>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={balanceWin}
-                className="btn-secondary shrink-0"
-                title="Set every included scenario's Total win to this amount — the excess budget stays in Remaining"
-              >
-                <Target className="h-4 w-4" /> Balance win
-              </button>
-              <input
-                type="number"
-                min="0"
-                step="1"
-                placeholder="Total win"
-                value={targetWin}
-                onChange={(e) => setTargetWin(e.target.value)}
-                className="input"
-              />
             </div>
           </div>
 
