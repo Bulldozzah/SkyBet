@@ -257,6 +257,7 @@ function CalculatorPage() {
       rows,
       results,
       teamNames,
+      outcomeOdds: outcomeOddsByTeams[activeTeams],
       tax,
       targetStake,
       totalStake,
@@ -281,11 +282,46 @@ function CalculatorPage() {
             outcome combinations · tax &amp; coverage check
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button onClick={resetAll} className="btn-secondary">
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            id="teams"
+            aria-label="Number of events"
+            value={activeTeams}
+            onChange={(e) => {
+              setActiveTeams(Number(e.target.value) as TeamTab);
+              setSelectedRow(null);
+            }}
+            className="input w-auto"
+          >
+            {TEAM_TABS.map((n) => (
+              <option key={n} value={n}>
+                {n} {side(n)} · {Math.pow(3, n)}
+              </option>
+            ))}
+          </select>
+          <select
+            id="sport"
+            aria-label="Sport"
+            value={sport}
+            onChange={(e) => setSport(e.target.value)}
+            className="input w-auto"
+          >
+            {SPORTS.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.icon} {s.label}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={resetAll}
+            className="btn-secondary border-red-300 bg-red-100 text-red-700 hover:bg-red-200 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-900/50"
+          >
             <RotateCcw className="h-4 w-4" /> Reset
           </button>
-          <button onClick={exportPDF} className="btn-secondary">
+          <button
+            onClick={exportPDF}
+            className="btn-secondary border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-200 dark:border-amber-800/50 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-900/50"
+          >
             <Download className="h-4 w-4" /> Export PDF
           </button>
           <button
@@ -306,26 +342,8 @@ function CalculatorPage() {
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(300px,360px)_minmax(0,1fr)]">
         {/* ------------------------------------------------ controls column */}
         <aside className="space-y-4 lg:sticky lg:top-4">
-          {/* Sport / budget / tax */}
+          {/* Budget / tax */}
           <div className="card space-y-3">
-            <div>
-              <label className="label" htmlFor="sport">
-                <span className="mr-1">{sportMeta.icon}</span> Sport
-              </label>
-              <select
-                id="sport"
-                value={sport}
-                onChange={(e) => setSport(e.target.value)}
-                className="input"
-              >
-                {SPORTS.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.icon} {s.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
             {/*
               Live totals. Read-only, so they sit on the muted surface to
               separate them from the editable fields underneath.
@@ -385,6 +403,63 @@ function CalculatorPage() {
             </div>
           </div>
 
+          {/* Participants & odds */}
+          <div className="card">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="font-semibold">{side(2)} &amp; odds</h2>
+              <button
+                onClick={clearOutcomeOdds}
+                className="btn-ghost text-xs bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-950/40 dark:text-green-300 dark:hover:bg-green-900/50"
+                title="Clear the W/D/L inputs and reset all scenario odds"
+              >
+                <Eraser className="h-3.5 w-3.5" /> Clear odds
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {Array.from({ length: activeTeams }).map((_, t) => {
+                // 1-event tab: rows are AW, AD, AL in OUTCOMES order, so input k
+                // binds straight to rows[k].odds. 2/3-event tabs use the derived
+                // per-participant inputs instead.
+                const oneEvent = activeTeams === 1;
+                const po = outcomeOddsByTeams[activeTeams][t];
+                return (
+                  // Name and W/D/L all on one line.
+                  <div key={TEAM_LETTERS[t]} className="flex items-center gap-2">
+                    <input
+                      value={teamNames[t] ?? ""}
+                      onChange={(e) => setTeamName(t, e.target.value)}
+                      placeholder={`${sportMeta.side} ${TEAM_LETTERS[t]} name`}
+                      className="input min-w-0 flex-1"
+                    />
+                    {OUTCOMES.map((o, k) => (
+                      <label
+                        key={o}
+                        className="relative block w-16 shrink-0"
+                        title={`Odds for ${OUTCOME_LABELS[o]}`}
+                      >
+                        <span className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground">
+                          {o}
+                        </span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={oneEvent ? rows[k].odds : po[o]}
+                          onChange={(e) =>
+                            oneEvent
+                              ? updateRow(k, "odds", e.target.value)
+                              : setOutcomeOdd(t, o, e.target.value)
+                          }
+                          className="input px-1 pl-5 text-right"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           {/*
             Balancing — one row. Labels are short so all three controls fit
             across a 300px column; the full explanation lives in each title.
@@ -405,112 +480,14 @@ function CalculatorPage() {
               <Target className="h-3.5 w-3.5" /> Balance win
             </button>
             <input
-              type="number"
-              min="0"
-              step="1"
+              type="text"
+              inputMode="decimal"
               placeholder="Total win"
               value={targetWin}
               onChange={(e) => setTargetWin(e.target.value)}
               aria-label="Target total win"
               className="input min-w-0 flex-1 px-2 text-sm"
             />
-          </div>
-
-          {/* Event-count tabs */}
-          <div className="flex rounded-lg border border-border bg-card p-1" role="tablist">
-            {TEAM_TABS.map((n) => (
-              <button
-                key={n}
-                role="tab"
-                aria-selected={activeTeams === n}
-                onClick={() => {
-                  setActiveTeams(n);
-                  setSelectedRow(null);
-                }}
-                className={cn(
-                  "flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-2 text-sm font-medium transition",
-                  activeTeams === n
-                    ? "bg-primary text-primary-foreground"
-                    : "text-foreground hover:bg-accent",
-                )}
-              >
-                {n} {side(n)}
-                <span
-                  className={cn(
-                    "rounded-full px-1.5 py-0.5 text-xs",
-                    activeTeams === n ? "bg-white/20" : "bg-secondary",
-                  )}
-                >
-                  {Math.pow(3, n)}
-                </span>
-              </button>
-            ))}
-          </div>
-
-          {/* Participants & odds */}
-          <div className="card">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h2 className="font-semibold">{side(2)} &amp; odds</h2>
-              <button
-                onClick={clearOutcomeOdds}
-                className="btn-ghost text-xs"
-                title="Clear the W/D/L inputs and reset all scenario odds"
-              >
-                <Eraser className="h-3.5 w-3.5" /> Clear odds
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              {Array.from({ length: activeTeams }).map((_, t) => {
-                // 1-event tab: rows are AW, AD, AL in OUTCOMES order, so input k
-                // binds straight to rows[k].odds. 2/3-event tabs use the derived
-                // per-participant inputs instead.
-                const oneEvent = activeTeams === 1;
-                const po = outcomeOddsByTeams[activeTeams][t];
-                return (
-                  // Name on its own row, W/D/L beneath — the controls column is
-                  // too narrow to keep all five fields on one line.
-                  <div key={TEAM_LETTERS[t]} className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-primary/10 text-sm font-bold text-primary">
-                        {TEAM_LETTERS[t]}
-                      </div>
-                      <input
-                        value={teamNames[t] ?? ""}
-                        onChange={(e) => setTeamName(t, e.target.value)}
-                        placeholder={`${sportMeta.side} ${TEAM_LETTERS[t]} name`}
-                        className="input"
-                      />
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 pl-11">
-                      {OUTCOMES.map((o, k) => (
-                        <label
-                          key={o}
-                          className="relative block"
-                          title={`Odds for ${OUTCOME_LABELS[o]}`}
-                        >
-                          <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs font-semibold text-muted-foreground">
-                            {o}
-                          </span>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={oneEvent ? rows[k].odds : po[o]}
-                            onChange={(e) =>
-                              oneEvent
-                                ? updateRow(k, "odds", e.target.value)
-                                : setOutcomeOdd(t, o, e.target.value)
-                            }
-                            className="input pl-7 text-right"
-                          />
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
           </div>
 
           {/* Save name */}
@@ -597,8 +574,8 @@ function CalculatorPage() {
                       </td>
                       <td className="p-3 text-right">
                         <input
-                          type="number"
-                          step="0.01"
+                          type="text"
+                          inputMode="decimal"
                           value={row.stake}
                           onClick={(e) => e.stopPropagation()}
                           onChange={(e) => updateRow(i, "stake", e.target.value)}
@@ -607,8 +584,8 @@ function CalculatorPage() {
                       </td>
                       <td className="p-3 text-right">
                         <input
-                          type="number"
-                          step="0.01"
+                          type="text"
+                          inputMode="decimal"
                           value={row.odds}
                           onClick={(e) => e.stopPropagation()}
                           onChange={(e) => updateRow(i, "odds", e.target.value)}

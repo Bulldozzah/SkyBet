@@ -6,6 +6,7 @@ import {
   sideWord,
   toNumber,
   TEAM_LETTERS,
+  type OutcomeOddsInput,
   type Row,
   type RowResult,
   type Sport,
@@ -17,6 +18,8 @@ export interface ExportArgs {
   rows: Row[];
   results: RowResult[];
   teamNames: string[];
+  /** Per-participant W/D/L prices, in team order. Blank on the 1-event tab. */
+  outcomeOdds?: OutcomeOddsInput[];
   tax: string;
   targetStake: string;
   totalStake: number;
@@ -30,6 +33,7 @@ export function exportBetPDF({
   rows,
   results,
   teamNames,
+  outcomeOdds,
   tax,
   targetStake,
   totalStake,
@@ -60,16 +64,37 @@ export function exportBetPDF({
     27,
   );
 
-  // Team legend, e.g. "A = Arsenal   B = Chelsea". Only named teams shown.
-  const legend = teamNames
-    .map((nm, i) => (nm.trim() ? `${TEAM_LETTERS[i]} = ${nm.trim()}` : null))
-    .filter(Boolean)
-    .join("    ");
+  // Teams & odds — each participant with its W/D/L prices, e.g.
+  // "A = AC Milan     W 1.50   D 4.60   L 6.00". On the 1-event tab the three
+  // W/D/L prices live in the scenario rows themselves (AW/AD/AL order).
+  const perTeamOdds = (i: number): { W: number; D: number; L: number } => {
+    if (activeTeams === 1) {
+      return {
+        W: toNumber(rows[0]?.odds),
+        D: toNumber(rows[1]?.odds),
+        L: toNumber(rows[2]?.odds),
+      };
+    }
+    const o = outcomeOdds?.[i];
+    return { W: toNumber(o?.W), D: toNumber(o?.D), L: toNumber(o?.L) };
+  };
+
   let tableStart = 31;
-  if (legend) {
-    doc.text(`${sideWord(sport, 2)}:  ${legend}`, 14, 32);
-    tableStart = 37;
+  doc.setFont("helvetica", "bold");
+  doc.text(`${sideWord(sport, 2)} & odds:`, 14, 32);
+  doc.setFont("helvetica", "normal");
+  let ty = 37;
+  for (let i = 0; i < activeTeams; i++) {
+    const nm = teamNames[i]?.trim() || TEAM_LETTERS[i];
+    const o = perTeamOdds(i);
+    const line =
+      o.W || o.D || o.L
+        ? `${TEAM_LETTERS[i]} = ${nm}      W ${fmt(o.W)}    D ${fmt(o.D)}    L ${fmt(o.L)}`
+        : `${TEAM_LETTERS[i]} = ${nm}`;
+    doc.text(line, 18, ty);
+    ty += 5;
   }
+  tableStart = ty + 1;
   doc.setTextColor(0);
 
   const head = [
