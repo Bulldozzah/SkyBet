@@ -210,8 +210,8 @@ function CalculatorPage() {
           ? bet.team_names
           : makeNames(count),
     }));
-    // Scanner picks carry each event's individual W/D/L odds; saved bets don't,
-    // so those inputs fall back to blank there.
+    // Both Scanner picks and saved bets carry each event's individual W/D/L
+    // odds; bets saved before the columns existed fall back to blank.
     setOutcomeOddsByTeams((prev) => ({
       ...prev,
       [count]:
@@ -240,6 +240,10 @@ function CalculatorPage() {
       target_stake: toNumber(targetStake),
       rows,
       team_names: teamNames,
+      // Persist the W/D/L inputs and match-ups too, so reopening the bet from
+      // My Bets restores the odds grid exactly as it was saved.
+      outcome_odds: outcomeOddsByTeams[activeTeams],
+      games: matchInfo,
     });
     setBusy(false);
     if (error) {
