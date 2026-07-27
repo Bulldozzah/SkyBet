@@ -41,6 +41,36 @@ export const comboScenarios = (n: number): string[] => {
 /** Same row order the Calculator's 2-team tab uses (team B cycles fastest). */
 export const PAIR_SCENARIOS = comboScenarios(2);
 
+/**
+ * Canonical outcome pattern of an excluded scenario, ignoring which game
+ * carries which outcome: "AL + BW" -> "WL". Which game sits in the A slot is
+ * an accident of fetch order, so the filter treats L+W and W+L as one thing.
+ * Outcomes sort W < D < L (OUTCOMES order).
+ */
+export const excludePatternKey = (label: string): string =>
+  label
+    .split(" + ")
+    .map((tok) => tok[1] as Outcome)
+    .sort((a, b) => OUTCOMES.indexOf(a) - OUTCOMES.indexOf(b))
+    .join("");
+
+/**
+ * Every outcome multiset of size n in the same canonical order the keys use:
+ * n=2 -> WW, WD, WL, DD, DL, LL (6); n=3 -> 10.
+ */
+export const exclPatternOptions = (n: number): string[] => {
+  const out: string[] = [];
+  const walk = (start: number, acc: string) => {
+    if (acc.length === n) {
+      out.push(acc);
+      return;
+    }
+    for (let i = start; i < OUTCOMES.length; i++) walk(i, acc + OUTCOMES[i]);
+  };
+  walk(0, "");
+  return out;
+};
+
 const invSum = (o: OddsTriple): number => 1 / o.W + 1 / o.D + 1 / o.L;
 
 /** Margin-normalized probability of one outcome ("implied chance"). */

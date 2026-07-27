@@ -27,6 +27,8 @@ import {
   evalSingleGameArb,
   buildComboBet,
   buildArbBet,
+  excludePatternKey,
+  exclPatternOptions,
   OUTCOMES,
   type ComboResult,
   type ScanMode,
@@ -103,6 +105,15 @@ const MAX_RESULTS = 50;
 
 const OUTCOME_WORDS: Record<string, string> = { W: "wins", D: "draws", L: "loses" };
 
+// For the excluded-scenario filter chips: "WL" -> "W+L", "a win + a loss".
+const PATTERN_NOUNS: Record<string, string> = { W: "a win", D: "a draw", L: "a loss" };
+const patternLabel = (key: string) => key.split("").join("+");
+const patternWords = (key: string) =>
+  key
+    .split("")
+    .map((o) => PATTERN_NOUNS[o])
+    .join(" + ");
+
 /** "AW + BD" -> "Arsenal wins + Inter draws" (one clause per game). */
 const excludeText = (result: ComboResult): string | null => {
   if (!result.excludeLabel) return null;
@@ -144,6 +155,7 @@ interface ScanCache {
   mode?: ScanMode;
   sortBy?: SortKey;
   teamCount?: number;
+  exclFilter?: string[];
   dateFrom?: string;
   dateTo?: string;
   scanTab?: ScanTab;
@@ -186,6 +198,9 @@ function ScannerPage() {
   const [mode, setMode] = useState<ScanMode>("single");
   const [sortBy, setSortBy] = useState<SortKey>("profit");
   const [teamCount, setTeamCount] = useState(2);
+  // Excluded-scenario patterns to keep, e.g. ["WL", "DL"]. Empty = no filter.
+  // Keys for both combo sizes live together; only same-length keys apply.
+  const [exclFilter, setExclFilter] = useState<string[]>([]);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
@@ -221,6 +236,7 @@ function ScannerPage() {
     if (c.mode) setMode(c.mode);
     if (c.sortBy) setSortBy(c.sortBy);
     if (c.teamCount) setTeamCount(c.teamCount);
+    if (c.exclFilter) setExclFilter(c.exclFilter);
     if (c.dateFrom) setDateFrom(c.dateFrom);
     if (c.dateTo) setDateTo(c.dateTo);
     if (c.scanTab) setScanTab(c.scanTab);
@@ -262,6 +278,7 @@ function ScannerPage() {
           mode,
           sortBy,
           teamCount,
+          exclFilter,
           dateFrom,
           dateTo,
           scanTab,
@@ -287,6 +304,7 @@ function ScannerPage() {
     mode,
     sortBy,
     teamCount,
+    exclFilter,
     dateFrom,
     dateTo,
     scanTab,
@@ -411,25 +429,59 @@ function ScannerPage() {
   // Whichever game list the active tab scans; results below render from this.
   const activeGames = scanTab === "league" ? filteredGames : dateGames;
 
-  const { pairs, arbs } = useMemo(() => {
-    if (!activeGames) return { pairs: [] as ComboResult[], arbs: [] };
+  // Filter keys that apply to the current combo size (2-char keys for pairs,
+  // 3-char for triples) — the rest are kept in state but ignored.
+  const activePatterns = useMemo(
+    () => exclFilter.filter((k) => k.length === teamCount),
+    [exclFilter, teamCount],
+  );
+
+  const { pairs, arbs, patternCounts, prefilterCount } = useMemo(() => {
+    if (!activeGames)
+      return {
+        pairs: [] as ComboResult[],
+        arbs: [],
+        patternCounts: {} as Record<string, number>,
+        prefilterCount: 0,
+      };
+    const scanned = scanCombos(activeGames, mode, minProfit, teamCount);
+    // Per-pattern totals from the unfiltered scan, so each chip can say how
+    // many results it represents even while others are filtered away.
+    const patternCounts: Record<string, number> = {};
+    for (const r of scanned) {
+      if (r.excludeLabel) {
+        const k = excludePatternKey(r.excludeLabel);
+        patternCounts[k] = (patternCounts[k] ?? 0) + 1;
+      }
+    }
+    // Keep only combos whose uncovered scenario matches a selected pattern.
+    // Full covers have no uncovered scenario and always stay — guaranteed
+    // profit should never be hidden by a risk filter.
+    const filtered = activePatterns.length
+      ? scanned.filter(
+          (r) =>
+            r.fullCover ||
+            (r.excludeLabel != null && activePatterns.includes(excludePatternKey(r.excludeLabel))),
+        )
+      : scanned;
     // scanCombos returns safest-first; re-sort by profit when asked. Full
     // covers stay pinned on top either way — guaranteed beats risky.
-    const scanned = scanCombos(activeGames, mode, minProfit, teamCount);
     if (sortBy === "profit") {
-      scanned.sort((a, b) => {
+      filtered.sort((a, b) => {
         if (a.fullCover !== b.fullCover) return a.fullCover ? -1 : 1;
         return b.profitPct - a.profitPct;
       });
     }
     return {
-      pairs: scanned,
+      pairs: filtered,
       arbs:
         mode === "cross"
           ? activeGames.map((g) => evalSingleGameArb(g, minProfit)).filter((a) => a !== null)
           : [],
+      patternCounts,
+      prefilterCount: scanned.length,
     };
-  }, [activeGames, mode, minProfit, sortBy, teamCount]);
+  }, [activeGames, mode, minProfit, sortBy, teamCount, activePatterns]);
 
   // Total scenarios for the current combo size (9 for pairs, 27 for triples).
   const scenarioCount = Math.pow(3, teamCount);
@@ -775,6 +827,40 @@ function ScannerPage() {
                   </div>
                 </div>
                 <div>
+                  <span className="label">Uncovered scenario</span>
+                  <div className="flex flex-wrap gap-2">
+                    <Chip
+                      active={activePatterns.length === 0}
+                      onClick={() =>
+                        setExclFilter((cur) => cur.filter((k) => k.length !== teamCount))
+                      }
+                      title="No filter — show every qualifying combo, whatever scenario is left uncovered"
+                    >
+                      Any
+                    </Chip>
+                    {exclPatternOptions(teamCount).map((k) => (
+                      <Chip
+                        key={k}
+                        active={activePatterns.includes(k)}
+                        onClick={() =>
+                          setExclFilter((cur) =>
+                            cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k],
+                          )
+                        }
+                        title={`Only combos whose uncovered scenario is ${patternWords(k)} — in either game order. Guaranteed full covers always stay.`}
+                      >
+                        {patternLabel(k)}
+                        <span className="ml-1 opacity-60">{patternCounts[k] ?? 0}</span>
+                      </Chip>
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    Which outcomes the one uncovered scenario may pair — e.g. W+L keeps only combos
+                    that lose when one side wins and the other loses. Higher-odds patterns are less
+                    likely to hit.
+                  </p>
+                </div>
+                <div>
                   <span className="label">Sort</span>
                   <div className="flex flex-wrap gap-2">
                     {SORTS.map((s) => (
@@ -818,7 +904,11 @@ function ScannerPage() {
                           ? `${games?.length} games`
                           : `${filteredGames?.length} of ${games?.length} games in date range`
                       }`}{" "}
-                  · {pairs.length} qualifying {comboWord}
+                  · {pairs.length}
+                  {activePatterns.length > 0 && prefilterCount !== pairs.length
+                    ? ` of ${prefilterCount}`
+                    : ""}{" "}
+                  qualifying {comboWord}
                   {books !== "region" && (scanTab === "date" || source === "live")
                     ? ` · ${BOOK_OPTIONS.find((b) => b.value === books)?.label ?? books}`
                     : ""}
@@ -887,18 +977,22 @@ function ScannerPage() {
 
               {pairs.length === 0 ? (
                 <div className="card text-sm text-muted-foreground">
-                  {scanTab === "league" && filteredGames?.length === 0 && (games?.length ?? 0) > 0
-                    ? "No scanned games kick off in the selected date range. Widen or clear the kickoff filter."
-                    : activeGames.length === 0
-                      ? "No games with 3-way odds found. Scan another date or add leagues."
-                      : activeGames.length < teamCount
-                        ? `Only ${activeGames.length} game${activeGames.length === 1 ? "" : "s"} available — ${teamCount}-team combos need at least ${teamCount}. ` +
-                          (scanTab === "date"
-                            ? "Add more leagues or try another date."
-                            : "Widen the kickoff filter.")
-                        : `No ${comboWord} clear ${minProfit}% profit with these odds. Try a lower floor${
-                            teamCount === 3 ? ", switch to 2 teams," : ""
-                          } or ${scanTab === "date" ? "more leagues" : "another league"}.`}
+                  {prefilterCount > 0
+                    ? `All ${prefilterCount} qualifying ${comboWord} are hidden by the uncovered-scenario filter. Select more patterns or set it back to Any.`
+                    : scanTab === "league" &&
+                        filteredGames?.length === 0 &&
+                        (games?.length ?? 0) > 0
+                      ? "No scanned games kick off in the selected date range. Widen or clear the kickoff filter."
+                      : activeGames.length === 0
+                        ? "No games with 3-way odds found. Scan another date or add leagues."
+                        : activeGames.length < teamCount
+                          ? `Only ${activeGames.length} game${activeGames.length === 1 ? "" : "s"} available — ${teamCount}-team combos need at least ${teamCount}. ` +
+                            (scanTab === "date"
+                              ? "Add more leagues or try another date."
+                              : "Widen the kickoff filter.")
+                          : `No ${comboWord} clear ${minProfit}% profit with these odds. Try a lower floor${
+                              teamCount === 3 ? ", switch to 2 teams," : ""
+                            } or ${scanTab === "date" ? "more leagues" : "another league"}.`}
                 </div>
               ) : (
                 <div className="space-y-3">
