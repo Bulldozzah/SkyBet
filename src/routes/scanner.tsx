@@ -98,7 +98,29 @@ type ScanTab = (typeof TABS)[number]["key"];
 // Cap how many upcoming games are paired so a big league stays readable.
 const MAX_GAMES = 14;
 // The date scan merges several leagues, so allow a few more before capping.
-const MAX_DATE_GAMES = 24;
+const MAX_DATE_GAMES = 30;
+
+/**
+ * Take up to `limit` games spread evenly over the leagues that returned any,
+ * one per league per pass, each league in kickoff order.
+ *
+ * Capping the globally-earliest kickoffs instead lets one early league evict
+ * every later one, so adding leagues to a scan could _shrink_ the results:
+ * the extra league pushed the previous leagues' games out of the cap rather
+ * than adding to them. Round-robin keeps every selected league represented.
+ */
+const allocateAcrossLeagues = (byLeague: Game[][], limit: number): Game[] => {
+  const queues = byLeague.map((gs) => [...gs]).filter((q) => q.length > 0);
+  const out: Game[] = [];
+  while (out.length < limit && queues.some((q) => q.length > 0)) {
+    for (const q of queues) {
+      if (out.length >= limit) break;
+      const g = q.shift();
+      if (g) out.push(g);
+    }
+  }
+  return out.sort((a, b) => +new Date(a.commence) - +new Date(b.commence));
+};
 // Regions carry 20+ bookmakers, so single-book mode can qualify thousands of
 // rows; only the top N are rendered.
 const MAX_RESULTS = 50;
@@ -162,6 +184,7 @@ interface ScanCache {
   scanDate?: string;
   selLeagues?: string[];
   dateGames?: Game[] | null;
+  dateFetched?: number;
   dateScannedAt?: number | null;
   games?: Game[] | null;
   source?: string;
@@ -211,6 +234,9 @@ function ScannerPage() {
   const [scanDate, setScanDate] = useState("");
   const [selLeagues, setSelLeagues] = useState<string[]>(["soccer_epl"]);
   const [dateGames, setDateGames] = useState<Game[] | null>(null);
+  // How many games the last date scan actually fetched, before the cap — so
+  // the summary can admit when it is scanning a subset.
+  const [dateFetched, setDateFetched] = useState(0);
   const [dateScannedAt, setDateScannedAt] = useState<number | null>(null);
 
   const [games, setGames] = useState<Game[] | null>(null); // null = not scanned yet
@@ -244,6 +270,7 @@ function ScannerPage() {
     setScanDate(c.scanDate || localDay(new Date()));
     if (c.selLeagues) setSelLeagues(c.selLeagues);
     if (c.dateGames) setDateGames(c.dateGames);
+    if (c.dateFetched) setDateFetched(c.dateFetched);
     if (c.dateScannedAt) setDateScannedAt(c.dateScannedAt);
     if (c.games) setGames(c.games);
     if (c.source) setSource(c.source);
@@ -285,6 +312,7 @@ function ScannerPage() {
           scanDate,
           selLeagues,
           dateGames,
+          dateFetched,
           dateScannedAt,
           games,
           source,
@@ -311,6 +339,7 @@ function ScannerPage() {
     scanDate,
     selLeagues,
     dateGames,
+    dateFetched,
     dateScannedAt,
     games,
     source,
@@ -374,13 +403,18 @@ function ScannerPage() {
           fetchLeagueOdds(k, regions, books === "region" ? "" : books, apiIso(start), apiIso(end)),
         ),
       );
-      const merged: Game[] = [];
+      const byLeague: Game[][] = [];
       const failed: string[] = [];
       let remaining: number | null = null;
+      let fetched = 0;
       settled.forEach((r, i) => {
         if (r.status === "fulfilled") {
           const title = leagueTitle(selLeagues[i]);
-          r.value.games.forEach((g) => merged.push({ ...g, league: title }));
+          const gs = r.value.games
+            .map((g) => ({ ...g, league: title }))
+            .sort((a, b) => +new Date(a.commence) - +new Date(b.commence));
+          fetched += gs.length;
+          if (gs.length > 0) byLeague.push(gs);
           const rem = parseFloat(String(r.value.remaining));
           // Requests run in parallel; the smallest counter is the freshest.
           if (!Number.isNaN(rem)) remaining = remaining == null ? rem : Math.min(remaining, rem);
@@ -388,15 +422,15 @@ function ScannerPage() {
           failed.push(leagueTitle(selLeagues[i]));
         }
       });
-      merged.sort((a, b) => +new Date(a.commence) - +new Date(b.commence));
-      setDateGames(merged.slice(0, MAX_DATE_GAMES));
+      setDateGames(allocateAcrossLeagues(byLeague, MAX_DATE_GAMES));
+      setDateFetched(fetched);
       setDateScannedAt(Date.now());
       if (remaining != null) setCredits(remaining);
       if (failed.length > 0) {
         setError(
           `Could not fetch: ${failed.join(", ")}. Results below cover the leagues that worked.`,
         );
-      } else if (merged.length === 0) {
+      } else if (fetched === 0) {
         setError("No games with 3-way odds on that date in the selected leagues.");
       }
     } catch (e) {
@@ -898,7 +932,11 @@ function ScannerPage() {
               <div className="mb-4 flex flex-wrap items-center gap-3">
                 <span className="rounded-md bg-secondary px-3 py-1.5 text-xs text-secondary-foreground">
                   {scanTab === "date"
-                    ? `Live odds · ${dateGames?.length ?? 0} games on ${scanDate}`
+                    ? `Live odds · ${
+                        dateFetched > (dateGames?.length ?? 0)
+                          ? `${dateGames?.length ?? 0} of ${dateFetched} games`
+                          : `${dateGames?.length ?? 0} games`
+                      } on ${scanDate}`
                     : `${source === "demo" ? "Demo data" : "Live odds"} · ${
                         filteredGames?.length === games?.length
                           ? `${games?.length} games`
