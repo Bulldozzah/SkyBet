@@ -99,6 +99,13 @@ type ScanTab = (typeof TABS)[number]["key"];
 const MAX_GAMES = 14;
 // The date scan merges several leagues, so allow a few more before capping.
 const MAX_DATE_GAMES = 30;
+// ...but it keeps a bigger pool than it scans, so the kickoff-time window can
+// pick from everything the scan paid for rather than from the capped slice.
+// Only this many are retained, to keep the localStorage cache sane.
+const MAX_DATE_POOL = 150;
+// Regions carry 20+ bookmakers, so single-book mode can qualify thousands of
+// rows; only the top N are rendered.
+const MAX_RESULTS = 50;
 
 /**
  * Take up to `limit` games spread evenly over the leagues that returned any,
@@ -121,9 +128,6 @@ const allocateAcrossLeagues = (byLeague: Game[][], limit: number): Game[] => {
   }
   return out.sort((a, b) => +new Date(a.commence) - +new Date(b.commence));
 };
-// Regions carry 20+ bookmakers, so single-book mode can qualify thousands of
-// rows; only the top N are rendered.
-const MAX_RESULTS = 50;
 
 const OUTCOME_WORDS: Record<string, string> = { W: "wins", D: "draws", L: "loses" };
 
@@ -161,6 +165,24 @@ const localDay = (iso: string | Date): string => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 
+/** Kickoff as a local 'HH:MM', comparable to an <input type="time">. */
+const localTime = (iso: string | Date): string => {
+  const d = iso instanceof Date ? iso : new Date(iso);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+/**
+ * True when a kickoff falls inside an optional local time-of-day window.
+ * Either end may be blank, so "from 18:00" and "up to 20:00" both work, and
+ * clearing both covers the whole day again.
+ */
+const inTimeWindow = (iso: string, from: string, to: string): boolean => {
+  if (!from && !to) return true;
+  const t = localTime(iso);
+  return (!from || t >= from) && (!to || t <= to);
+};
+
 /** The Odds API wants commence-time bounds as ISO without milliseconds. */
 const apiIso = (d: Date) => d.toISOString().replace(/\.\d+Z$/, "Z");
 
@@ -180,6 +202,8 @@ interface ScanCache {
   exclFilter?: string[];
   dateFrom?: string;
   dateTo?: string;
+  timeFrom?: string;
+  timeTo?: string;
   scanTab?: ScanTab;
   scanDate?: string;
   selLeagues?: string[];
@@ -226,6 +250,9 @@ function ScannerPage() {
   const [exclFilter, setExclFilter] = useState<string[]>([]);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  // Kickoff time-of-day window, both ends optional. Blank = the whole day.
+  const [timeFrom, setTimeFrom] = useState("");
+  const [timeTo, setTimeTo] = useState("");
 
   const [scanTab, setScanTab] = useState<ScanTab>("league");
   // Left empty for the server render: "today" depends on the viewer's timezone,
@@ -265,6 +292,8 @@ function ScannerPage() {
     if (c.exclFilter) setExclFilter(c.exclFilter);
     if (c.dateFrom) setDateFrom(c.dateFrom);
     if (c.dateTo) setDateTo(c.dateTo);
+    if (c.timeFrom) setTimeFrom(c.timeFrom);
+    if (c.timeTo) setTimeTo(c.timeTo);
     if (c.scanTab) setScanTab(c.scanTab);
     // Cached choice wins; otherwise default to the viewer's local today.
     setScanDate(c.scanDate || localDay(new Date()));
@@ -308,6 +337,8 @@ function ScannerPage() {
           exclFilter,
           dateFrom,
           dateTo,
+          timeFrom,
+          timeTo,
           scanTab,
           scanDate,
           selLeagues,
@@ -335,6 +366,8 @@ function ScannerPage() {
     exclFilter,
     dateFrom,
     dateTo,
+    timeFrom,
+    timeTo,
     scanTab,
     scanDate,
     selLeagues,
@@ -422,7 +455,7 @@ function ScannerPage() {
           failed.push(leagueTitle(selLeagues[i]));
         }
       });
-      setDateGames(allocateAcrossLeagues(byLeague, MAX_DATE_GAMES));
+      setDateGames(allocateAcrossLeagues(byLeague, MAX_DATE_POOL));
       setDateFetched(fetched);
       setDateScannedAt(Date.now());
       if (remaining != null) setCredits(remaining);
@@ -453,15 +486,37 @@ function ScannerPage() {
   // Kickoff-date filter applied to the already-fetched games — pure client
   // side, so narrowing the range never costs API credits.
   const filteredGames = useMemo(() => {
-    if (!games || (!dateFrom && !dateTo)) return games;
+    if (!games || (!dateFrom && !dateTo && !timeFrom && !timeTo)) return games;
     return games.filter((g) => {
       const day = localDay(g.commence);
-      return (!dateFrom || day >= dateFrom) && (!dateTo || day <= dateTo);
+      return (
+        (!dateFrom || day >= dateFrom) &&
+        (!dateTo || day <= dateTo) &&
+        inTimeWindow(g.commence, timeFrom, timeTo)
+      );
     });
-  }, [games, dateFrom, dateTo]);
+  }, [games, dateFrom, dateTo, timeFrom, timeTo]);
+
+  /**
+   * The date scan holds a pool of up to MAX_DATE_POOL games, so the kickoff
+   * window narrows the pool first and only then is the scan cap shared out —
+   * picking an evening window gives a full 30 evening games rather than
+   * whatever survived a cap applied at fetch time.
+   */
+  const dateWindow = useMemo(() => {
+    if (!dateGames) return null;
+    const kept = dateGames.filter((g) => inTimeWindow(g.commence, timeFrom, timeTo));
+    const byLeague = new Map<string, Game[]>();
+    for (const g of kept) {
+      const q = byLeague.get(g.league ?? "");
+      if (q) q.push(g);
+      else byLeague.set(g.league ?? "", [g]);
+    }
+    return allocateAcrossLeagues([...byLeague.values()], MAX_DATE_GAMES);
+  }, [dateGames, timeFrom, timeTo]);
 
   // Whichever game list the active tab scans; results below render from this.
-  const activeGames = scanTab === "league" ? filteredGames : dateGames;
+  const activeGames = scanTab === "league" ? filteredGames : dateWindow;
 
   // Filter keys that apply to the current combo size (2-char keys for pairs,
   // 3-char for triples) — the rest are kept in state but ignored.
@@ -825,6 +880,55 @@ function ScannerPage() {
                 </div>
               )}
 
+              {/* Kickoff time-of-day window — narrows whichever games the tab
+                  already has, so it never costs credits and both ends are
+                  optional (leave blank for the whole day). */}
+              <div
+                className="card space-y-2"
+                title="Only combine games kicking off inside this time window"
+              >
+                <span className="label mb-0">
+                  Kickoff time
+                  <span className="ml-1 font-normal normal-case text-muted-foreground">
+                    (optional — blank scans the whole day)
+                  </span>
+                </span>
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <input
+                    type="time"
+                    value={timeFrom}
+                    onChange={(e) => setTimeFrom(e.target.value)}
+                    aria-label="Kickoff from time"
+                    className="input w-auto flex-1"
+                  />
+                  <span className="text-muted-foreground">to</span>
+                  <input
+                    type="time"
+                    value={timeTo}
+                    onChange={(e) => setTimeTo(e.target.value)}
+                    aria-label="Kickoff to time"
+                    className="input w-auto flex-1"
+                  />
+                </div>
+                {timeFrom && timeTo && timeFrom > timeTo && (
+                  <p className="text-xs text-destructive">
+                    The window ends before it starts, so nothing matches. Windows do not wrap past
+                    midnight.
+                  </p>
+                )}
+                {(timeFrom || timeTo) && (
+                  <button
+                    onClick={() => {
+                      setTimeFrom("");
+                      setTimeTo("");
+                    }}
+                    className="btn-secondary w-full justify-center py-1 text-xs"
+                  >
+                    Clear time
+                  </button>
+                )}
+              </div>
+
               <div className="card space-y-3">
                 <div>
                   <span className="label">Combine</span>
@@ -933,9 +1037,9 @@ function ScannerPage() {
                 <span className="rounded-md bg-secondary px-3 py-1.5 text-xs text-secondary-foreground">
                   {scanTab === "date"
                     ? `Live odds · ${
-                        dateFetched > (dateGames?.length ?? 0)
-                          ? `${dateGames?.length ?? 0} of ${dateFetched} games`
-                          : `${dateGames?.length ?? 0} games`
+                        gamesScanned < dateFetched
+                          ? `${gamesScanned} of ${dateFetched} games`
+                          : `${gamesScanned} games`
                       } on ${scanDate}`
                     : `${source === "demo" ? "Demo data" : "Live odds"} · ${
                         filteredGames?.length === games?.length
@@ -1021,16 +1125,20 @@ function ScannerPage() {
                         filteredGames?.length === 0 &&
                         (games?.length ?? 0) > 0
                       ? "No scanned games kick off in the selected date range. Widen or clear the kickoff filter."
-                      : activeGames.length === 0
-                        ? "No games with 3-way odds found. Scan another date or add leagues."
-                        : activeGames.length < teamCount
-                          ? `Only ${activeGames.length} game${activeGames.length === 1 ? "" : "s"} available — ${teamCount}-team combos need at least ${teamCount}. ` +
-                            (scanTab === "date"
-                              ? "Add more leagues or try another date."
-                              : "Widen the kickoff filter.")
-                          : `No ${comboWord} clear ${minProfit}% profit with these odds. Try a lower floor${
-                              teamCount === 3 ? ", switch to 2 teams," : ""
-                            } or ${scanTab === "date" ? "more leagues" : "another league"}.`}
+                      : (timeFrom || timeTo) &&
+                          activeGames.length === 0 &&
+                          (scanTab === "date" ? (dateGames?.length ?? 0) > 0 : true)
+                        ? "No scanned games kick off inside the selected time window. Widen or clear it."
+                        : activeGames.length === 0
+                          ? "No games with 3-way odds found. Scan another date or add leagues."
+                          : activeGames.length < teamCount
+                            ? `Only ${activeGames.length} game${activeGames.length === 1 ? "" : "s"} available — ${teamCount}-team combos need at least ${teamCount}. ` +
+                              (scanTab === "date"
+                                ? "Add more leagues or try another date."
+                                : "Widen the kickoff filter.")
+                            : `No ${comboWord} clear ${minProfit}% profit with these odds. Try a lower floor${
+                                teamCount === 3 ? ", switch to 2 teams," : ""
+                              } or ${scanTab === "date" ? "more leagues" : "another league"}.`}
                 </div>
               ) : (
                 <div className="space-y-3">
