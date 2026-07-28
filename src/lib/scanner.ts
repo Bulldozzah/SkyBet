@@ -71,10 +71,11 @@ export const exclPatternOptions = (n: number): string[] => {
   return out;
 };
 
-const invSum = (o: OddsTriple): number => 1 / o.W + 1 / o.D + 1 / o.L;
+/** Summed inverse odds of one market — the bookmaker's overround, 1.03 = 3%. */
+export const invSum = (o: OddsTriple): number => 1 / o.W + 1 / o.D + 1 / o.L;
 
 /** Margin-normalized probability of one outcome ("implied chance"). */
-const impliedProb = (odds: OddsTriple, o: Outcome): number => 1 / odds[o] / invSum(odds);
+export const impliedProb = (odds: OddsTriple, o: Outcome): number => 1 / odds[o] / invSum(odds);
 
 /** Best odds per outcome across a game's bookmakers, remembering the book. */
 export const bestOdds = (game: Game): { odds: OddsTriple; books: Record<Outcome, string> } => {
