@@ -23,7 +23,7 @@
 // structural lever available without better prices.
 
 import type { Game } from "./odds-api";
-import { invSum, type OddsTriple } from "./scanner";
+import { invSum, excludePatternKey, type OddsTriple } from "./scanner";
 import { scenarioNetPayout, toNumber } from "./bet-stats";
 import type { BetRow } from "./supabase";
 
@@ -151,6 +151,27 @@ export const correlationNote = (games: Game[]): string | null => {
   if (sameLeague) return "Same competition";
   if (together) return "Kickoffs within 2h";
   return null;
+};
+
+/**
+ * Whether a result survives the uncovered-scenario filter.
+ *
+ * Pattern keys only apply to their own structure size, so selecting a 2-game
+ * pattern leaves 1- and 3-game rows unfiltered — the Scanner's rule, extended
+ * across the leg counts the workbench shows together. Full covers have no
+ * uncovered scenario and always stay: guaranteed profit should never be hidden
+ * by a risk filter.
+ */
+export const matchesExclFilter = (
+  filter: string[],
+  legs: number,
+  excludeLabel: string | null,
+  fullCover: boolean,
+): boolean => {
+  const applicable = filter.filter((k) => k.length === legs);
+  if (applicable.length === 0) return true;
+  if (fullCover) return true;
+  return !!excludeLabel && applicable.includes(excludePatternKey(excludeLabel));
 };
 
 /** Signed percentage, e.g. "+3.42%" / "-9.31%". */

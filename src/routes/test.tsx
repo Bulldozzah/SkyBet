@@ -31,6 +31,8 @@ import {
   bestOdds,
   invSum,
   impliedProb,
+  excludePatternKey,
+  exclPatternOptions,
   OUTCOMES,
   type ComboResult,
   type OddsTriple,
@@ -41,6 +43,7 @@ import {
   marketMargin,
   evaluateRows,
   correlationNote,
+  matchesExclFilter,
   signedPct,
   type MarketMargin,
 } from "@/lib/edge";
@@ -165,6 +168,9 @@ function TestPage() {
   const [mode, setMode] = useState<ScanMode>("cross");
   const [legs, setLegs] = useState<number[]>([1, 2, 3]);
   const [minPct, setMinPct] = useState("0");
+  // Uncovered-scenario patterns to keep, e.g. ["WL", "DL"]. Keys for every
+  // structure size live together; only same-length keys apply to a given row.
+  const [exclFilter, setExclFilter] = useState<string[]>([]);
 
   // localStorage is browser-only, so this cannot run in a state initializer
   // without desyncing hydration.
@@ -198,7 +204,7 @@ function TestPage() {
   const floor = Math.max(0, parseFloat(minPct) || 0);
 
   /** Every qualifying structure over the pool, ranked by expected value. */
-  const ranked = useMemo(() => {
+  const rankedAll = useMemo(() => {
     if (pool.length === 0) return [];
     const out: { result: ComboResult; per100: number; legs: number }[] = [];
     for (const n of legs) {
@@ -209,16 +215,39 @@ function TestPage() {
     }
     // Expected value first; among equals prefer the one that lands more often,
     // since variance is the only thing left to choose on.
-    return out
-      .sort((a, b) => b.per100 - a.per100 || a.result.exclProb - b.result.exclProb)
-      .slice(0, MAX_ROWS);
+    return out.sort((a, b) => b.per100 - a.per100 || a.result.exclProb - b.result.exclProb);
   }, [pool, mode, floor, legs]);
+
+  // How many results each uncovered-scenario pattern would keep, counted before
+  // the filter is applied so the chips don't all read 0 once one is selected.
+  const patternCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const { result } of rankedAll) {
+      if (!result.excludeLabel) continue;
+      const key = excludePatternKey(result.excludeLabel);
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  }, [rankedAll]);
+
+  const ranked = useMemo(
+    () =>
+      rankedAll
+        .filter(({ result, legs: n }) =>
+          matchesExclFilter(exclFilter, n, result.excludeLabel, result.fullCover),
+        )
+        .slice(0, MAX_ROWS),
+    [rankedAll, exclFilter],
+  );
 
   const openInCalculator = (result: ComboResult) =>
     navigate({ to: "/calculator", state: { loadBet: buildComboBet(result) } as never });
 
   const toggleLeg = (n: number) =>
     setLegs((prev) => (prev.includes(n) ? prev.filter((x) => x !== n) : [...prev, n].sort()));
+
+  const togglePattern = (k: string) =>
+    setExclFilter((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
 
   const active = TABS.find((t) => t.key === tab)!;
 
@@ -336,6 +365,11 @@ function TestPage() {
               hasGames={!!games}
               poolSize={pool.length}
               onLoad={openInCalculator}
+              exclFilter={exclFilter}
+              togglePattern={togglePattern}
+              clearPatterns={() => setExclFilter([])}
+              patternCounts={patternCounts}
+              hiddenByFilter={rankedAll.length - ranked.length}
             />
           )}
           {tab === "structures" && (
@@ -360,6 +394,11 @@ function ValueTab({
   hasGames,
   poolSize,
   onLoad,
+  exclFilter,
+  togglePattern,
+  clearPatterns,
+  patternCounts,
+  hiddenByFilter,
 }: {
   ranked: { result: ComboResult; per100: number; legs: number }[];
   legs: number[];
@@ -369,6 +408,11 @@ function ValueTab({
   hasGames: boolean;
   poolSize: number;
   onLoad: (r: ComboResult) => void;
+  exclFilter: string[];
+  togglePattern: (k: string) => void;
+  clearPatterns: () => void;
+  patternCounts: Record<string, number>;
+  hiddenByFilter: number;
 }) {
   const positive = ranked.filter((r) => r.per100 >= 100).length;
   // The combo open in the preview modal, with the value figures that got it
@@ -416,12 +460,60 @@ function ValueTab({
           is usually the best-value row here, because each extra leg multiplies in another bookmaker
           margin.
         </p>
+
+        <div className="mt-4 border-t border-border pt-3">
+          <span className="label">Uncovered scenario</span>
+          <div className="space-y-2">
+            <button
+              onClick={clearPatterns}
+              className={cn(
+                "rounded-full border px-3 py-1 text-xs font-semibold transition",
+                exclFilter.length === 0
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border bg-card text-foreground hover:bg-accent",
+              )}
+            >
+              Any
+            </button>
+            {legs.map((n) => (
+              <div key={n} className="flex flex-wrap items-center gap-1.5">
+                <span className="w-14 shrink-0 text-xs font-semibold text-muted-foreground">
+                  {n} game{n === 1 ? "" : "s"}
+                </span>
+                {exclPatternOptions(n).map((k) => (
+                  <button
+                    key={k}
+                    onClick={() => togglePattern(k)}
+                    title={`Keep only combos whose uncovered scenario is ${k.split("").join(" + ")}`}
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 font-mono text-xs font-semibold transition",
+                      exclFilter.includes(k)
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-card text-foreground hover:bg-accent",
+                    )}
+                  >
+                    {k.split("").join("+")}{" "}
+                    <span className="opacity-60">{patternCounts[k] ?? 0}</span>
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Which outcomes the one uncovered scenario may pair — e.g. W+L keeps only combos that
+            lose when one side wins and the other loses. Which game sits in the A slot is an
+            accident of fetch order, so W+L and L+W are one pattern. Leaving a row unselected leaves
+            that structure unfiltered, and guaranteed full covers always stay.
+            {hiddenByFilter > 0 ? ` ${hiddenByFilter} result(s) hidden.` : ""}
+          </p>
+        </div>
       </div>
 
       {!hasGames ? null : ranked.length === 0 ? (
         <div className="card text-sm text-muted-foreground">
-          Nothing qualifies from the {poolSize} tightest markets at this payout floor. Lower it, or
-          include more structures.
+          {hiddenByFilter > 0
+            ? `All ${hiddenByFilter} qualifying results are hidden by the uncovered-scenario filter. Select more patterns, or set it back to Any.`
+            : `Nothing qualifies from the ${poolSize} tightest markets at this payout floor. Lower it, or include more structures.`}
         </div>
       ) : (
         <>
