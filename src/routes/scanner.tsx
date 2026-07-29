@@ -15,12 +15,13 @@ import { ProtectedRoute } from "@/components/protected-route";
 import { Alert } from "@/components/auth-shell";
 import { cn } from "@/lib/utils";
 import {
-  hasOddsApiKey,
+  fetchOddsConfigured,
   fetchSoccerLeagues,
   fetchLeagueOdds,
   type Game,
   type League,
 } from "@/lib/odds-api";
+import { useAuth } from "@/lib/auth";
 import {
   scanCombos,
   evalSingleGameArb,
@@ -237,7 +238,14 @@ const scanAge = (ts: number): string => {
 
 function ScannerPage() {
   const navigate = useNavigate();
-  const hasKey = hasOddsApiKey();
+  const { session } = useAuth();
+  // The key now lives on the server, so its presence is something we ask for
+  // rather than read. Assume absent until the server answers, so the controls
+  // never flash enabled.
+  const [hasKey, setHasKey] = useState(false);
+  // Server functions spend from a shared paid quota, so every call carries the
+  // caller's session for the proxy to authorize.
+  const token = session?.access_token ?? "";
 
   const [leagues, setLeagues] = useState<League[]>([]);
   const [league, setLeague] = useState("soccer_epl");
@@ -271,6 +279,9 @@ function ScannerPage() {
   const [games, setGames] = useState<Game[] | null>(null); // null = not scanned yet
   const [source, setSource] = useState(""); // 'live' | 'demo'
   const [credits, setCredits] = useState<number | string | null>(null);
+  // True when the last scan was answered entirely from the server's shared
+  // cache, so it cost no credits — worth saying out loud.
+  const [servedFromCache, setServedFromCache] = useState(false);
   const [scannedAt, setScannedAt] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -311,15 +322,21 @@ function ScannerPage() {
   }, []);
 
   useEffect(() => {
-    if (!hasKey) return;
-    fetchSoccerLeagues()
+    fetchOddsConfigured()
+      .then(setHasKey)
+      .catch(() => setHasKey(false));
+  }, []);
+
+  useEffect(() => {
+    if (!hasKey || !token) return;
+    fetchSoccerLeagues(token)
       .then((ls) => {
         setLeagues(ls);
         // Keep the (possibly cache-restored) selection if it's still valid.
         setLeague((cur) => (ls.length && !ls.some((l) => l.key === cur) ? ls[0].key : cur));
       })
       .catch((e: Error) => setError(`Could not load leagues: ${e.message}`));
-  }, [hasKey]);
+  }, [hasKey, token]);
 
   // Persist everything needed to restore this page after navigating away.
   useEffect(() => {
@@ -388,11 +405,11 @@ function ScannerPage() {
     setBusy(true);
     setError("");
     try {
-      const { games: fetched, remaining } = await fetchLeagueOdds(
-        league,
-        regions,
-        books === "region" ? "" : books,
-      );
+      const {
+        games: fetched,
+        remaining,
+        cached: fromCache,
+      } = await fetchLeagueOdds(token, league, regions, books === "region" ? "" : books);
       const title = leagueTitle(league);
       const upcoming = fetched
         .sort((a, b) => +new Date(a.commence) - +new Date(b.commence))
@@ -401,6 +418,7 @@ function ScannerPage() {
       setGames(upcoming);
       setSource("live");
       setCredits(remaining);
+      setServedFromCache(fromCache);
       setScannedAt(Date.now());
       if (upcoming.length === 0)
         setError("No upcoming games with 3-way odds in this league right now.");
@@ -435,15 +453,24 @@ function ScannerPage() {
       const end = new Date(start.getTime() + 24 * 3600 * 1000);
       const settled = await Promise.allSettled(
         selLeagues.map((k) =>
-          fetchLeagueOdds(k, regions, books === "region" ? "" : books, apiIso(start), apiIso(end)),
+          fetchLeagueOdds(
+            token,
+            k,
+            regions,
+            books === "region" ? "" : books,
+            apiIso(start),
+            apiIso(end),
+          ),
         ),
       );
       const byLeague: Game[][] = [];
       const failed: string[] = [];
       let remaining: number | null = null;
       let fetched = 0;
+      let allCached = true;
       settled.forEach((r, i) => {
         if (r.status === "fulfilled") {
+          if (!r.value.cached) allCached = false;
           const title = leagueTitle(selLeagues[i]);
           const gs = r.value.games
             .map((g) => ({ ...g, league: title }))
@@ -460,6 +487,7 @@ function ScannerPage() {
       setDateGames(allocateAcrossLeagues(byLeague, MAX_DATE_POOL));
       setDateFetched(fetched);
       setDateScannedAt(Date.now());
+      setServedFromCache(allCached && settled.some((r) => r.status === "fulfilled"));
       if (remaining != null) setCredits(remaining);
       if (failed.length > 0) {
         setError(
@@ -609,6 +637,14 @@ function ScannerPage() {
             API credits left: {credits}
           </span>
         )}
+        {servedFromCache && (
+          <span
+            className="rounded-md bg-success/15 px-3 py-1.5 text-xs font-semibold text-success"
+            title="Answered from the server's shared cache — the upstream API was not called"
+          >
+            Served from cache · no credits spent
+          </span>
+        )}
       </div>
 
       {!hasKey && (
@@ -622,9 +658,10 @@ function ScannerPage() {
           >
             the-odds-api.com
           </a>{" "}
-          and add <code className="rounded bg-background px-1">VITE_ODDS_API_KEY=your-key</code> to{" "}
-          <code className="rounded bg-background px-1">.env</code>, then restart the dev server.
-          Until then, use demo data to try the workflow.
+          and add <code className="rounded bg-background px-1">ODDS_API_KEY=your-key</code> to{" "}
+          <code className="rounded bg-background px-1">.env</code>, then restart the dev server. The
+          name is deliberately not <code className="rounded bg-background px-1">VITE_</code>
+          -prefixed so the key stays on the server. Until then, use demo data to try the workflow.
         </Alert>
       )}
       {error && <Alert tone="error">{error}</Alert>}

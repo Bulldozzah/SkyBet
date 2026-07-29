@@ -1,12 +1,12 @@
-// Thin client for The Odds API (https://the-odds-api.com) — free tier is
-// 500 credits/month; one odds call costs (number of regions) credits, or
-// 1 credit per 10 named bookmakers. The key lives in .env as
-// VITE_ODDS_API_KEY.
+// Client-facing odds API. The paid key used to live here as
+// VITE_ODDS_API_KEY, which Vite inlines into the browser bundle — anyone could
+// read it out of devtools and spend the quota. Fetching now happens in server
+// functions that call lib/odds-server.ts, so the key stays on the server and
+// every user shares one cache instead of each spending their own credits.
+//
+// The types and normalizeEvents stay here because both halves need them.
 
-const BASE = "https://api.the-odds-api.com/v4";
-const apiKey = import.meta.env.VITE_ODDS_API_KEY as string | undefined;
-
-export const hasOddsApiKey = (): boolean => !!apiKey;
+import { createServerFn } from "@tanstack/react-start";
 
 /** One bookmaker's three-way prices for a fixture. */
 export interface BookOdds {
@@ -40,57 +40,10 @@ export interface OddsResponse {
   used: string | null;
 }
 
-const apiError = async (res: Response): Promise<string> => {
-  try {
-    const body = await res.json();
-    return body.message || `${res.status} ${res.statusText}`;
-  } catch {
-    return `${res.status} ${res.statusText}`;
-  }
-};
-
-/**
- * Soccer leagues currently in season. The /sports endpoint is free (costs no
- * credits), so it is always fetched live for the league pickers.
- */
-export async function fetchSoccerLeagues(): Promise<League[]> {
-  const res = await fetch(`${BASE}/sports/?apiKey=${apiKey}`);
-  if (!res.ok) throw new Error(await apiError(res));
-  const all = await res.json();
-  return (all as { key: string; title: string; group: string; active: boolean }[])
-    .filter((s) => s.group === "Soccer" && s.active)
-    .map((s) => ({ key: s.key, title: s.title }));
-}
-
-/**
- * Head-to-head (1X2) odds for a league. Passing `bookmakers` (comma-separated
- * keys, e.g. "onexbet,betway") overrides the region and fetches exactly those
- * books — cheaper too. Optional `from`/`to` (ISO, no milliseconds) restrict
- * results to fixtures commencing in that window; same credit cost, smaller
- * payload.
- */
-export async function fetchLeagueOdds(
-  sportKey: string,
-  regions: string,
-  bookmakers = "",
-  from = "",
-  to = "",
-): Promise<OddsResponse> {
-  const selector = bookmakers ? `bookmakers=${bookmakers}` : `regions=${regions}`;
-  const window =
-    (from ? `&commenceTimeFrom=${encodeURIComponent(from)}` : "") +
-    (to ? `&commenceTimeTo=${encodeURIComponent(to)}` : "");
-  const url =
-    `${BASE}/sports/${sportKey}/odds/?apiKey=${apiKey}` +
-    `&${selector}&markets=h2h&oddsFormat=decimal${window}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(await apiError(res));
-  const events = await res.json();
-  return {
-    games: normalizeEvents(events),
-    remaining: res.headers.get("x-requests-remaining"),
-    used: res.headers.get("x-requests-used"),
-  };
+export interface OddsResult extends OddsResponse {
+  /** True when the server served this from cache, so no credits were spent. */
+  cached: boolean;
+  fetchedAt: number;
 }
 
 interface ApiOutcome {
@@ -145,4 +98,84 @@ export function normalizeEvents(events: ApiEvent[] | null | undefined): Game[] {
       };
     })
     .filter((g) => g.books.length > 0);
+}
+
+// ---------------------------------------------------------------- server fns
+//
+// The handlers below are stripped from the client bundle; the browser gets an
+// RPC stub. lib/odds-server.ts is imported dynamically so it never enters the
+// client module graph at all.
+
+/** Whether the server has a key, so the UI can explain itself when it doesn't. */
+export const oddsStatus = createServerFn({ method: "GET" }).handler(async () => {
+  const { oddsKeyConfigured } = await import("./odds-server");
+  return { configured: oddsKeyConfigured() };
+});
+
+export interface OddsRequest {
+  accessToken: string;
+  sportKey: string;
+  regions: string;
+  bookmakers?: string;
+  from?: string;
+  to?: string;
+}
+
+const leaguesFn = createServerFn({ method: "POST" })
+  .inputValidator((d: { accessToken: string }) => d)
+  .handler(async ({ data }) => {
+    const { loadSoccerLeagues, assertApprovedUser } = await import("./odds-server");
+    await assertApprovedUser(data.accessToken);
+    return loadSoccerLeagues();
+  });
+
+const oddsFn = createServerFn({ method: "POST" })
+  .inputValidator((d: OddsRequest) => d)
+  .handler(async ({ data }) => {
+    const { loadLeagueOdds, assertApprovedUser } = await import("./odds-server");
+    // The proxy holds a paid key, so it must not be an open relay: only
+    // signed-in, approved accounts can spend from the shared quota.
+    await assertApprovedUser(data.accessToken);
+    return loadLeagueOdds(
+      data.sportKey,
+      data.regions,
+      data.bookmakers ?? "",
+      data.from ?? "",
+      data.to ?? "",
+    );
+  });
+
+/**
+ * Soccer leagues currently in season. The /sports endpoint costs no credits,
+ * but the result is cached server-side anyway so a room full of users doesn't
+ * each trigger their own call.
+ */
+export async function fetchSoccerLeagues(accessToken: string): Promise<League[]> {
+  return leaguesFn({ data: { accessToken } });
+}
+
+/**
+ * Head-to-head (1X2) odds for a league. Passing `bookmakers` (comma-separated
+ * keys, e.g. "onexbet,betway") overrides the region and fetches exactly those
+ * books — cheaper too. Optional `from`/`to` (ISO, no milliseconds) restrict
+ * results to fixtures commencing in that window.
+ *
+ * Identical requests inside the cache window are served without touching the
+ * upstream API, so `cached: true` means no credits were spent.
+ */
+export async function fetchLeagueOdds(
+  accessToken: string,
+  sportKey: string,
+  regions: string,
+  bookmakers = "",
+  from = "",
+  to = "",
+): Promise<OddsResult> {
+  return oddsFn({ data: { accessToken, sportKey, regions, bookmakers, from, to } });
+}
+
+/** Server-held key presence, for disabling the scan controls with a reason. */
+export async function fetchOddsConfigured(): Promise<boolean> {
+  const { configured } = await oddsStatus();
+  return configured;
 }
