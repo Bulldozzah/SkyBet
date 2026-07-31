@@ -14,6 +14,7 @@ import {
   LogOut,
   ShieldCheck,
   Beaker,
+  Coins,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -25,6 +26,7 @@ const nav = [
   { to: "/my-bets", label: "My Bets", icon: Wallet },
   { to: "/stats", label: "Stats", icon: BarChart3 },
   { to: "/test", label: "Test", icon: Beaker },
+  { to: "/poly", label: "Poly", icon: Coins },
   // Only rendered for administrators — see `visibleNav` below.
   { to: "/admin", label: "Admin", icon: ShieldCheck, adminOnly: true },
 ];

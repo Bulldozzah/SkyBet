@@ -166,7 +166,7 @@ function TestPage() {
   const [source, setSource] = useState("");
   const [scannedAt, setScannedAt] = useState<number | null>(null);
   const [mode, setMode] = useState<ScanMode>("cross");
-  const [legs, setLegs] = useState<number[]>([1, 2, 3]);
+  const [legCount, setLegCount] = useState(2);
   const [minPct, setMinPct] = useState("0");
   // Uncovered-scenario patterns to keep, e.g. ["WL", "DL"]. Keys for every
   // structure size live together; only same-length keys apply to a given row.
@@ -203,20 +203,18 @@ function TestPage() {
 
   const floor = Math.max(0, parseFloat(minPct) || 0);
 
-  /** Every qualifying structure over the pool, ranked by expected value. */
+  /** Every qualifying combo at the selected structure, ranked by expected value. */
   const rankedAll = useMemo(() => {
-    if (pool.length === 0) return [];
-    const out: { result: ComboResult; per100: number; legs: number }[] = [];
-    for (const n of legs) {
-      if (pool.length < n) continue;
-      for (const result of scanCombos(pool, mode, floor, n)) {
-        out.push({ result, per100: expectedPer100(result.gamesOdds), legs: n });
-      }
-    }
+    if (pool.length < legCount) return [];
+    const out = Array.from(scanCombos(pool, mode, floor, legCount), (result) => ({
+      result,
+      per100: expectedPer100(result.gamesOdds),
+      legs: legCount,
+    }));
     // Expected value first; among equals prefer the one that lands more often,
     // since variance is the only thing left to choose on.
     return out.sort((a, b) => b.per100 - a.per100 || a.result.exclProb - b.result.exclProb);
-  }, [pool, mode, floor, legs]);
+  }, [pool, mode, floor, legCount]);
 
   // How many results each uncovered-scenario pattern would keep, counted before
   // the filter is applied so the chips don't all read 0 once one is selected.
@@ -243,8 +241,12 @@ function TestPage() {
   const openInCalculator = (result: ComboResult) =>
     navigate({ to: "/calculator", state: { loadBet: buildComboBet(result) } as never });
 
-  const toggleLeg = (n: number) =>
-    setLegs((prev) => (prev.includes(n) ? prev.filter((x) => x !== n) : [...prev, n].sort()));
+  // Pattern keys are structure-specific, so a stale selection from the previous
+  // size would read as a filter that no longer matches anything on screen.
+  const changeLegCount = (n: number) => {
+    setLegCount(n);
+    setExclFilter([]);
+  };
 
   const togglePattern = (k: string) =>
     setExclFilter((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
@@ -358,8 +360,8 @@ function TestPage() {
           {tab === "value" && (
             <ValueTab
               ranked={ranked}
-              legs={legs}
-              toggleLeg={toggleLeg}
+              legCount={legCount}
+              setLegCount={changeLegCount}
               minPct={minPct}
               setMinPct={setMinPct}
               hasGames={!!games}
@@ -387,8 +389,8 @@ function TestPage() {
 
 function ValueTab({
   ranked,
-  legs,
-  toggleLeg,
+  legCount,
+  setLegCount,
   minPct,
   setMinPct,
   hasGames,
@@ -401,8 +403,8 @@ function ValueTab({
   hiddenByFilter,
 }: {
   ranked: { result: ComboResult; per100: number; legs: number }[];
-  legs: number[];
-  toggleLeg: (n: number) => void;
+  legCount: number;
+  setLegCount: (n: number) => void;
   minPct: string;
   setMinPct: (v: string) => void;
   hasGames: boolean;
@@ -424,23 +426,21 @@ function ValueTab({
       <div className="card">
         <div className="flex flex-wrap items-end gap-4">
           <div>
-            <span className="label">Structures to include</span>
-            <div className="flex gap-2">
+            <label className="label" htmlFor="test-structure">
+              Structure
+            </label>
+            <select
+              id="test-structure"
+              value={legCount}
+              onChange={(e) => setLegCount(Number(e.target.value))}
+              className="input w-auto"
+            >
               {[1, 2, 3].map((n) => (
-                <button
-                  key={n}
-                  onClick={() => toggleLeg(n)}
-                  className={cn(
-                    "rounded-md border px-3 py-1.5 text-xs font-semibold transition",
-                    legs.includes(n)
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border bg-card text-foreground hover:bg-accent",
-                  )}
-                >
+                <option key={n} value={n}>
                   {n} game{n === 1 ? "" : "s"} ({Math.pow(3, n) - 1} of {Math.pow(3, n)})
-                </button>
+                </option>
               ))}
-            </div>
+            </select>
           </div>
           <div className="w-32">
             <label className="label" htmlFor="test-minpct">
@@ -456,14 +456,14 @@ function ValueTab({
           </div>
         </div>
         <p className="mt-3 text-xs text-muted-foreground">
-          The 1-game structure is the one the Scanner cannot show you — it only offers 2 and 3. It
-          is usually the best-value row here, because each extra leg multiplies in another bookmaker
-          margin.
+          2 games (8 of 9) is the default. The 1-game structure is the one the Scanner cannot show
+          you — it only offers 2 and 3 — and it usually ranks best here, because each extra leg
+          multiplies in another bookmaker margin.
         </p>
 
         <div className="mt-4 border-t border-border pt-3">
           <span className="label">Uncovered scenario</span>
-          <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
               onClick={clearPatterns}
               className={cn(
@@ -475,35 +475,27 @@ function ValueTab({
             >
               Any
             </button>
-            {legs.map((n) => (
-              <div key={n} className="flex flex-wrap items-center gap-1.5">
-                <span className="w-14 shrink-0 text-xs font-semibold text-muted-foreground">
-                  {n} game{n === 1 ? "" : "s"}
-                </span>
-                {exclPatternOptions(n).map((k) => (
-                  <button
-                    key={k}
-                    onClick={() => togglePattern(k)}
-                    title={`Keep only combos whose uncovered scenario is ${k.split("").join(" + ")}`}
-                    className={cn(
-                      "rounded-full border px-2.5 py-1 font-mono text-xs font-semibold transition",
-                      exclFilter.includes(k)
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-card text-foreground hover:bg-accent",
-                    )}
-                  >
-                    {k.split("").join("+")}{" "}
-                    <span className="opacity-60">{patternCounts[k] ?? 0}</span>
-                  </button>
-                ))}
-              </div>
+            {exclPatternOptions(legCount).map((k) => (
+              <button
+                key={k}
+                onClick={() => togglePattern(k)}
+                title={`Keep only combos whose uncovered scenario is ${k.split("").join(" + ")}`}
+                className={cn(
+                  "rounded-full border px-2.5 py-1 font-mono text-xs font-semibold transition",
+                  exclFilter.includes(k)
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-card text-foreground hover:bg-accent",
+                )}
+              >
+                {k.split("").join("+")} <span className="opacity-60">{patternCounts[k] ?? 0}</span>
+              </button>
             ))}
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
             Which outcomes the one uncovered scenario may pair — e.g. W+L keeps only combos that
             lose when one side wins and the other loses. Which game sits in the A slot is an
-            accident of fetch order, so W+L and L+W are one pattern. Leaving a row unselected leaves
-            that structure unfiltered, and guaranteed full covers always stay.
+            accident of fetch order, so W+L and L+W are one pattern. Selecting nothing leaves the
+            structure unfiltered, and guaranteed full covers always stay.
             {hiddenByFilter > 0 ? ` ${hiddenByFilter} result(s) hidden.` : ""}
           </p>
         </div>
@@ -513,7 +505,7 @@ function ValueTab({
         <div className="card text-sm text-muted-foreground">
           {hiddenByFilter > 0
             ? `All ${hiddenByFilter} qualifying results are hidden by the uncovered-scenario filter. Select more patterns, or set it back to Any.`
-            : `Nothing qualifies from the ${poolSize} tightest markets at this payout floor. Lower it, or include more structures.`}
+            : `Nothing qualifies from the ${poolSize} tightest markets at this payout floor. Lower it, or pick a different structure.`}
         </div>
       ) : (
         <>

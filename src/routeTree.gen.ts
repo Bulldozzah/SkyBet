@@ -15,6 +15,7 @@ import { Route as CalculatorRouteImport } from './routes/calculator'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as MyBetsRouteImport } from './routes/my-bets'
 import { Route as PendingRouteImport } from './routes/pending'
+import { Route as PolyRouteImport } from './routes/poly'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as ScannerRouteImport } from './routes/scanner'
@@ -51,6 +52,11 @@ const PendingRoute = PendingRouteImport.update({
   path: '/pending',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PolyRoute = PolyRouteImport.update({
+  id: '/poly',
+  path: '/poly',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RegisterRoute = RegisterRouteImport.update({
   id: '/register',
   path: '/register',
@@ -84,6 +90,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/my-bets': typeof MyBetsRoute
   '/pending': typeof PendingRoute
+  '/poly': typeof PolyRoute
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
   '/scanner': typeof ScannerRoute
@@ -97,6 +104,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/my-bets': typeof MyBetsRoute
   '/pending': typeof PendingRoute
+  '/poly': typeof PolyRoute
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
   '/scanner': typeof ScannerRoute
@@ -111,6 +119,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/my-bets': typeof MyBetsRoute
   '/pending': typeof PendingRoute
+  '/poly': typeof PolyRoute
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
   '/scanner': typeof ScannerRoute
@@ -126,6 +135,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/my-bets'
     | '/pending'
+    | '/poly'
     | '/register'
     | '/reset-password'
     | '/scanner'
@@ -139,6 +149,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/my-bets'
     | '/pending'
+    | '/poly'
     | '/register'
     | '/reset-password'
     | '/scanner'
@@ -152,6 +163,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/my-bets'
     | '/pending'
+    | '/poly'
     | '/register'
     | '/reset-password'
     | '/scanner'
@@ -166,6 +178,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   MyBetsRoute: typeof MyBetsRoute
   PendingRoute: typeof PendingRoute
+  PolyRoute: typeof PolyRoute
   RegisterRoute: typeof RegisterRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   ScannerRoute: typeof ScannerRoute
@@ -217,6 +230,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PendingRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/poly': {
+      id: '/poly'
+      path: '/poly'
+      fullPath: '/poly'
+      preLoaderRoute: typeof PolyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/register': {
       id: '/register'
       path: '/register'
@@ -262,6 +282,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   MyBetsRoute: MyBetsRoute,
   PendingRoute: PendingRoute,
+  PolyRoute: PolyRoute,
   RegisterRoute: RegisterRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   ScannerRoute: ScannerRoute,
