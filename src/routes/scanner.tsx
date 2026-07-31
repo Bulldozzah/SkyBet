@@ -9,19 +9,19 @@ import {
   Clock,
   FlaskConical,
   Eye,
-  X,
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { ProtectedRoute } from "@/components/protected-route";
 import { Alert } from "@/components/auth-shell";
 import { cn } from "@/lib/utils";
 import {
-  hasOddsApiKey,
+  fetchOddsConfigured,
   fetchSoccerLeagues,
   fetchLeagueOdds,
   type Game,
   type League,
 } from "@/lib/odds-api";
+import { useAuth } from "@/lib/auth";
 import {
   scanCombos,
   evalSingleGameArb,
@@ -34,7 +34,9 @@ import {
   type ScanMode,
 } from "@/lib/scanner";
 import { getDemoGames } from "@/lib/demo-odds";
-import { computeRows, fmt, TEAM_LETTERS, type Row } from "@/lib/calculator";
+import { SCAN_CACHE_KEY } from "@/lib/scan-cache";
+import { fmt } from "@/lib/calculator";
+import { ComboPreviewModal } from "@/components/combo-preview";
 
 export const Route = createFileRoute("/scanner")({
   head: () => ({
@@ -188,8 +190,9 @@ const apiIso = (d: Date) => d.toISOString().replace(/\.\d+Z$/, "Z");
 
 // Scan results are cached in localStorage so navigating away (or reloading)
 // doesn't throw away a scan that cost API credits — rescanning is always an
-// explicit button click.
-const CACHE_KEY = "scanner-cache";
+// explicit button click. The Test workbench reads this same cache, so the key
+// lives in lib/scan-cache.ts.
+const CACHE_KEY = SCAN_CACHE_KEY;
 
 interface ScanCache {
   league?: string;
@@ -235,7 +238,14 @@ const scanAge = (ts: number): string => {
 
 function ScannerPage() {
   const navigate = useNavigate();
-  const hasKey = hasOddsApiKey();
+  const { session } = useAuth();
+  // The key now lives on the server, so its presence is something we ask for
+  // rather than read. Assume absent until the server answers, so the controls
+  // never flash enabled.
+  const [hasKey, setHasKey] = useState(false);
+  // Server functions spend from a shared paid quota, so every call carries the
+  // caller's session for the proxy to authorize.
+  const token = session?.access_token ?? "";
 
   const [leagues, setLeagues] = useState<League[]>([]);
   const [league, setLeague] = useState("soccer_epl");
@@ -269,6 +279,9 @@ function ScannerPage() {
   const [games, setGames] = useState<Game[] | null>(null); // null = not scanned yet
   const [source, setSource] = useState(""); // 'live' | 'demo'
   const [credits, setCredits] = useState<number | string | null>(null);
+  // True when the last scan was answered entirely from the server's shared
+  // cache, so it cost no credits — worth saying out loud.
+  const [servedFromCache, setServedFromCache] = useState(false);
   const [scannedAt, setScannedAt] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -309,15 +322,21 @@ function ScannerPage() {
   }, []);
 
   useEffect(() => {
-    if (!hasKey) return;
-    fetchSoccerLeagues()
+    fetchOddsConfigured()
+      .then(setHasKey)
+      .catch(() => setHasKey(false));
+  }, []);
+
+  useEffect(() => {
+    if (!hasKey || !token) return;
+    fetchSoccerLeagues(token)
       .then((ls) => {
         setLeagues(ls);
         // Keep the (possibly cache-restored) selection if it's still valid.
         setLeague((cur) => (ls.length && !ls.some((l) => l.key === cur) ? ls[0].key : cur));
       })
       .catch((e: Error) => setError(`Could not load leagues: ${e.message}`));
-  }, [hasKey]);
+  }, [hasKey, token]);
 
   // Persist everything needed to restore this page after navigating away.
   useEffect(() => {
@@ -386,11 +405,11 @@ function ScannerPage() {
     setBusy(true);
     setError("");
     try {
-      const { games: fetched, remaining } = await fetchLeagueOdds(
-        league,
-        regions,
-        books === "region" ? "" : books,
-      );
+      const {
+        games: fetched,
+        remaining,
+        cached: fromCache,
+      } = await fetchLeagueOdds(token, league, regions, books === "region" ? "" : books);
       const title = leagueTitle(league);
       const upcoming = fetched
         .sort((a, b) => +new Date(a.commence) - +new Date(b.commence))
@@ -399,6 +418,7 @@ function ScannerPage() {
       setGames(upcoming);
       setSource("live");
       setCredits(remaining);
+      setServedFromCache(fromCache);
       setScannedAt(Date.now());
       if (upcoming.length === 0)
         setError("No upcoming games with 3-way odds in this league right now.");
@@ -433,15 +453,24 @@ function ScannerPage() {
       const end = new Date(start.getTime() + 24 * 3600 * 1000);
       const settled = await Promise.allSettled(
         selLeagues.map((k) =>
-          fetchLeagueOdds(k, regions, books === "region" ? "" : books, apiIso(start), apiIso(end)),
+          fetchLeagueOdds(
+            token,
+            k,
+            regions,
+            books === "region" ? "" : books,
+            apiIso(start),
+            apiIso(end),
+          ),
         ),
       );
       const byLeague: Game[][] = [];
       const failed: string[] = [];
       let remaining: number | null = null;
       let fetched = 0;
+      let allCached = true;
       settled.forEach((r, i) => {
         if (r.status === "fulfilled") {
+          if (!r.value.cached) allCached = false;
           const title = leagueTitle(selLeagues[i]);
           const gs = r.value.games
             .map((g) => ({ ...g, league: title }))
@@ -458,6 +487,7 @@ function ScannerPage() {
       setDateGames(allocateAcrossLeagues(byLeague, MAX_DATE_POOL));
       setDateFetched(fetched);
       setDateScannedAt(Date.now());
+      setServedFromCache(allCached && settled.some((r) => r.status === "fulfilled"));
       if (remaining != null) setCredits(remaining);
       if (failed.length > 0) {
         setError(
@@ -607,6 +637,14 @@ function ScannerPage() {
             API credits left: {credits}
           </span>
         )}
+        {servedFromCache && (
+          <span
+            className="rounded-md bg-success/15 px-3 py-1.5 text-xs font-semibold text-success"
+            title="Answered from the server's shared cache — the upstream API was not called"
+          >
+            Served from cache · no credits spent
+          </span>
+        )}
       </div>
 
       {!hasKey && (
@@ -620,9 +658,10 @@ function ScannerPage() {
           >
             the-odds-api.com
           </a>{" "}
-          and add <code className="rounded bg-background px-1">VITE_ODDS_API_KEY=your-key</code> to{" "}
-          <code className="rounded bg-background px-1">.env</code>, then restart the dev server.
-          Until then, use demo data to try the workflow.
+          and add <code className="rounded bg-background px-1">ODDS_API_KEY=your-key</code> to{" "}
+          <code className="rounded bg-background px-1">.env</code>, then restart the dev server. The
+          name is deliberately not <code className="rounded bg-background px-1">VITE_</code>
+          -prefixed so the key stays on the server. Until then, use demo data to try the workflow.
         </Alert>
       )}
       {error && <Alert tone="error">{error}</Alert>}
@@ -1240,7 +1279,7 @@ function ScannerPage() {
       </div>
 
       {preview && (
-        <PreviewModal
+        <ComboPreviewModal
           result={preview}
           onClose={() => setPreview(null)}
           onLoad={() => {
@@ -1250,170 +1289,6 @@ function ScannerPage() {
         />
       )}
     </AppShell>
-  );
-}
-
-/** 3-letter uppercase abbreviation, e.g. "Arsenal" -> "ARS". */
-const abbr = (name: string, fallback: string): string =>
-  (name?.trim() ? name.trim().slice(0, 3) : fallback).toUpperCase();
-
-const OUTCOME_TONE: Record<string, string> = {
-  W: "bg-success/15 text-success",
-  D: "bg-secondary text-secondary-foreground",
-  L: "bg-destructive/15 text-destructive",
-};
-
-/**
- * Compact read-only preview of a scanned combo: each game's W/D/L odds up top,
- * then every scenario with its 3-letter names, total win, profit % and cover
- * status — the same figures the Calculator would show at a 100 budget.
- */
-function PreviewModal({
-  result,
-  onClose,
-  onLoad,
-}: {
-  result: ComboResult;
-  onClose: () => void;
-  onLoad: () => void;
-}) {
-  const bet = useMemo(() => buildComboBet(result), [result]);
-  const rows = bet.rows as Row[];
-  const { totalStake, results } = useMemo(
-    () => computeRows(rows, bet.tax, bet.target_stake),
-    [rows, bet.tax, bet.target_stake],
-  );
-  const names = bet.team_names ?? [];
-  const tag = (letter: string) => abbr(names[TEAM_LETTERS.indexOf(letter)] ?? "", letter);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      role="dialog"
-      aria-modal="true"
-      onClick={onClose}
-    >
-      <div
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card p-4 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold">Scenario preview</h2>
-            <p className="text-xs text-muted-foreground">
-              At a {fmt(totalStake)} budget · via {result.bookLabel}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            aria-label="Close preview"
-            className="btn-ghost h-8 w-8 shrink-0 justify-center p-0"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Teams & odds */}
-        <div className="mb-3 space-y-1.5">
-          {result.games.map((g, i) => {
-            const o = result.gamesOdds[i];
-            return (
-              <div
-                key={g.id}
-                className="flex items-center justify-between gap-2 rounded-md bg-secondary px-2.5 py-1.5 text-xs"
-              >
-                <span className="min-w-0 flex-1 truncate font-medium">
-                  <span className="mr-1 font-mono font-bold text-primary">
-                    {abbr(g.home, TEAM_LETTERS[i])}
-                  </span>
-                  {g.home} <span className="text-muted-foreground">v</span> {g.away}
-                </span>
-                <span className="shrink-0 font-mono text-muted-foreground">
-                  W {fmt(o.W)} · D {fmt(o.D)} · L {fmt(o.L)}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Scenario grid */}
-        <div className="overflow-x-auto rounded-md border border-border">
-          <table className="w-full text-xs">
-            <thead className="bg-secondary uppercase tracking-wide text-secondary-foreground">
-              <tr>
-                <th className="p-2 text-left">Scenario</th>
-                <th className="p-2 text-right">Total win</th>
-                <th className="p-2 text-right">Profit %</th>
-                <th className="p-2 text-center">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, i) => {
-                const r = results[i];
-                return (
-                  <tr
-                    key={row.name}
-                    className={cn("border-t border-border", row.excluded && "opacity-40")}
-                  >
-                    <td className="p-2">
-                      <div className="flex flex-wrap gap-1">
-                        {row.name.split(" + ").map((tok) => (
-                          <span
-                            key={tok}
-                            className={cn(
-                              "rounded px-1.5 py-0.5 font-mono font-semibold",
-                              OUTCOME_TONE[tok.slice(1)],
-                            )}
-                          >
-                            {tag(tok[0])} {tok.slice(1)}
-                          </span>
-                        ))}
-                        {row.excluded && (
-                          <span className="rounded bg-warning/20 px-1.5 py-0.5 font-semibold text-warning-foreground">
-                            excluded
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="p-2 text-right font-mono">{fmt(r.gross)}</td>
-                    <td
-                      className={cn(
-                        "p-2 text-right font-mono",
-                        r.profit >= 0 ? "text-success" : "text-destructive",
-                      )}
-                    >
-                      {r.gross > 0 ? `${r.profitPct.toFixed(1)}%` : "—"}
-                    </td>
-                    <td className="p-2 text-center">
-                      <span
-                        title={r.covered ? "Covered" : "Loss"}
-                        className={cn(
-                          "text-sm font-bold",
-                          r.covered ? "text-success" : "text-destructive",
-                        )}
-                      >
-                        {r.covered ? "▲" : "▼"}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Actions */}
-        <div className="mt-4 flex justify-end gap-2">
-          <button onClick={onClose} className="btn-secondary py-1.5 text-xs">
-            Close
-          </button>
-          <button onClick={onLoad} className="btn-primary py-1.5 text-xs">
-            Load into Calculator <ArrowRight className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 
