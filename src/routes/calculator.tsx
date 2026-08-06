@@ -1,11 +1,14 @@
 import { createFileRoute, useRouterState, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { Save, Download, RotateCcw, Scale, Target, Eraser } from "lucide-react";
+import { Save, Download, RotateCcw, Scale, Target, Eraser, AlertTriangle } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { ProtectedRoute } from "@/components/protected-route";
 import { useAuth } from "@/lib/auth";
 import { supabase, type LoadableBet } from "@/lib/supabase";
 import { exportBetPDF } from "@/lib/export-pdf";
+import { eventExposures, openBetClashes, selfClashes } from "@/lib/exposure";
+import { ExposureWarning } from "@/components/exposure-warning";
+import { useOpenBets } from "@/hooks/use-open-bets";
 import { cn } from "@/lib/utils";
 import {
   OUTCOMES,
@@ -71,8 +74,12 @@ function CalculatorPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   // A bet handed over from Scanner or My Bets arrives as router location state.
+  // My Bets hands over a full saved row (so it carries an id); Scanner picks
+  // are fresh and have none. The id is what stops a reopened bet from warning
+  // that it overlaps itself.
   const loadedBet = useRouterState({
-    select: (s) => (s.location.state as { loadBet?: LoadableBet } | undefined)?.loadBet,
+    select: (s) =>
+      (s.location.state as { loadBet?: LoadableBet & { id?: string } } | undefined)?.loadBet,
   });
 
   const [sport, setSport] = useState(SPORTS[0].id);
@@ -92,6 +99,9 @@ function CalculatorPage() {
   const [statusMsg, setStatusMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
+  const [loadedBetId, setLoadedBetId] = useState<string | null>(null);
+  // Unsettled bets, for the correlation guard below.
+  const { openBets, refresh: refreshOpenBets } = useOpenBets(!!user);
 
   const rows = rowsByTeams[activeTeams];
   const teamNames = namesByTeams[activeTeams];
@@ -102,6 +112,25 @@ function CalculatorPage() {
     () => computeRows(rows, tax, targetStake),
     [rows, tax, targetStake],
   );
+
+  // ------------------------------------------------------- correlation guard
+
+  const currentEvents = useMemo(
+    () => eventExposures(matchInfo, teamNames, activeTeams),
+    [matchInfo, teamNames, activeTeams],
+  );
+  const selfWarnings = useMemo(() => selfClashes(currentEvents), [currentEvents]);
+  const openWarnings = useMemo(
+    () =>
+      openBetClashes(
+        currentEvents,
+        openBets.filter((b) => b.id !== loadedBetId),
+      ),
+    [currentEvents, openBets, loadedBetId],
+  );
+  // What is already riding on the clashing bets, so the banner can state the
+  // real combined exposure rather than just this bet's stake.
+  const clashedStake = openWarnings.reduce((sum, w) => sum + w.stake, 0);
 
   // ---------------------------------------------------------------- mutators
 
@@ -162,6 +191,7 @@ function CalculatorPage() {
     setOutcomeOddsByTeams(initialOutcomeOdds());
     setBetTitle("");
     setMatchInfo(null);
+    setLoadedBetId(null);
     setSelectedRow(null);
     setTargetWin("");
     setStatusMsg("Reset to defaults.");
@@ -221,6 +251,7 @@ function CalculatorPage() {
     }));
     setBetTitle(bet.title || "");
     setMatchInfo(Array.isArray(bet.games) && bet.games.length > 0 ? bet.games : null);
+    setLoadedBetId(bet.id ?? null);
     setStatusMsg(`Loaded "${bet.title}".`);
     // Clear the one-shot hand-off so a refresh doesn't reload it.
     void navigate({ to: "/calculator", replace: true, state: {} as never });
@@ -230,27 +261,35 @@ function CalculatorPage() {
     if (!user) return;
     setBusy(true);
     setStatusMsg("");
-    const { error } = await supabase.from("bets").insert({
-      user_id: user.id,
-      title:
-        betTitle ||
-        `${sportMeta.label} · ${activeTeams} ${side(activeTeams).toLowerCase()} · ${new Date().toLocaleString()}`,
-      team_count: activeTeams,
-      tax: toNumber(tax),
-      target_stake: toNumber(targetStake),
-      rows,
-      team_names: teamNames,
-      // Persist the W/D/L inputs and match-ups too, so reopening the bet from
-      // My Bets restores the odds grid exactly as it was saved.
-      outcome_odds: outcomeOddsByTeams[activeTeams],
-      games: matchInfo,
-    });
+    const { data, error } = await supabase
+      .from("bets")
+      .insert({
+        user_id: user.id,
+        title:
+          betTitle ||
+          `${sportMeta.label} · ${activeTeams} ${side(activeTeams).toLowerCase()} · ${new Date().toLocaleString()}`,
+        team_count: activeTeams,
+        tax: toNumber(tax),
+        target_stake: toNumber(targetStake),
+        rows,
+        team_names: teamNames,
+        // Persist the W/D/L inputs and match-ups too, so reopening the bet from
+        // My Bets restores the odds grid exactly as it was saved.
+        outcome_odds: outcomeOddsByTeams[activeTeams],
+        games: matchInfo,
+      })
+      .select("id")
+      .single();
     setBusy(false);
     if (error) {
       setStatusMsg(`Save failed: ${error.message}`);
     } else {
+      // The bet on screen is now this saved row. Claiming its id keeps the
+      // refresh below from reporting the bet as clashing with itself.
+      setLoadedBetId((data as { id: string } | null)?.id ?? null);
       setStatusMsg("Bet saved. View it under “My Bets”.");
       setBetTitle("");
+      refreshOpenBets();
     }
   };
 
@@ -337,6 +376,45 @@ function CalculatorPage() {
           </button>
         </div>
       </div>
+
+      {/*
+        Correlation guard. Scenario odds multiply as if every event were
+        independent, and nothing in a single bet's figures can reveal that
+        another open bet is riding on the same fixture — so both overlaps get
+        stated here, above the numbers they undermine.
+      */}
+      {(selfWarnings.length > 0 || openWarnings.length > 0) && (
+        <div className="mb-6 space-y-3">
+          {selfWarnings.length > 0 && (
+            <div
+              role="alert"
+              className="flex gap-3 rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-semibold">
+                  The same {side(1).toLowerCase()} appears twice on this bet
+                </p>
+                <ul className="mt-1 space-y-0.5">
+                  {selfWarnings.map((c, i) => (
+                    <li key={i}>
+                      {c.sameFixture
+                        ? `${c.event} is entered as two separate events.`
+                        : `${c.names.join(", ")} is in both ${c.event} and ${c.against}.`}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1.5 text-xs">
+                  The scenario odds multiply as if these were independent events, so the grid is
+                  pricing combinations that cannot both happen. Fix the line-up before staking.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <ExposureWarning clashes={openWarnings} combinedStake={totalStake + clashedStake} />
+        </div>
+      )}
 
       {/*
         Two columns on desktop: controls on the left, scenario table on the

@@ -46,7 +46,11 @@ function LoginPage() {
   };
 
   return (
-    <AuthShell title="Sign in" subtitle="Welcome back! Please sign in to continue.">
+    <AuthShell
+      title="Sign in"
+      subtitle="Welcome back! Please sign in to continue."
+      background="#1d4268"
+    >
       {error && <Alert tone="error">{error}</Alert>}
 
       <form onSubmit={submit} className="space-y-4">
@@ -85,7 +89,7 @@ function LoginPage() {
         </PillButton>
       </form>
 
-      <p className="mt-6 text-center text-sm text-muted-foreground">
+      <p className="mt-6 text-center text-sm text-slate-300">
         Don’t have an account?{" "}
         <Link to="/register" className="font-medium text-primary hover:underline">
           Sign up

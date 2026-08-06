@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import {
   fetchLeagueOdds,
-  fetchSoccerLeagues,
+  fetchLeagues,
   fetchOddsConfigured,
   type Game,
   type League,
@@ -228,7 +228,7 @@ function PolyPage() {
 
   useEffect(() => {
     if (!hasKey || !token) return;
-    fetchSoccerLeagues(token)
+    fetchLeagues(token, "soccer")
       .then((ls) => {
         setLeagues(ls);
         // Drop cached selections that are no longer in season.
