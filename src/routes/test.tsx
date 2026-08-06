@@ -7,7 +7,7 @@
 // the Scanner's cached scan, or bundled demo data.
 
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Scale,
   Layers,
@@ -23,6 +23,8 @@ import { AppShell } from "@/components/app-shell";
 import { ProtectedRoute } from "@/components/protected-route";
 import { Alert } from "@/components/auth-shell";
 import { ComboPreviewModal } from "@/components/combo-preview";
+import { eventExposures, openBetClashes } from "@/lib/exposure";
+import { useOpenBets } from "@/hooks/use-open-bets";
 import { cn } from "@/lib/utils";
 import type { Game } from "@/lib/odds-api";
 import {
@@ -49,9 +51,10 @@ import {
 } from "@/lib/edge";
 import { getDemoGames } from "@/lib/demo-odds";
 import { readScanCache } from "@/lib/scan-cache";
+import { inTimeWindow } from "@/lib/time-window";
 import { supabase, type Bet } from "@/lib/supabase";
 import { computeBet, fmt, withinPeriod, PERIODS } from "@/lib/bet-stats";
-import { formatDateTime, formatDate } from "@/lib/format-date";
+import { formatDateTimeLocal, formatDate } from "@/lib/format-date";
 
 export const Route = createFileRoute("/test")({
   head: () => ({
@@ -171,6 +174,12 @@ function TestPage() {
   // Uncovered-scenario patterns to keep, e.g. ["WL", "DL"]. Keys for every
   // structure size live together; only same-length keys apply to a given row.
   const [exclFilter, setExclFilter] = useState<string[]>([]);
+  // Kickoff time-of-day window over the cached games. The checkbox is the
+  // master switch, so unticking removes the time factor without losing the
+  // typed window — flip between an AM shortlist and the whole day freely.
+  const [timeOn, setTimeOn] = useState(false);
+  const [timeFrom, setTimeFrom] = useState("");
+  const [timeTo, setTimeTo] = useState("");
 
   // localStorage is browser-only, so this cannot run in a state initializer
   // without desyncing hydration.
@@ -189,15 +198,23 @@ function TestPage() {
     setScannedAt(Date.now());
   };
 
+  // Games the workbench computes over: the cached scan, optionally narrowed
+  // to the kickoff window so every structure (1, 2 or 3 games) is built purely
+  // from games inside it.
+  const timedGames = useMemo(() => {
+    if (!games || !timeOn) return games;
+    return games.filter((g) => inTimeWindow(g.commence, timeFrom, timeTo));
+  }, [games, timeOn, timeFrom, timeTo]);
+
   // Margins for every scanned game, tightest first. Drives the Markets tab and
   // the pool every other tab computes over.
   const margins = useMemo(() => {
-    if (!games) return [];
-    return games
+    if (!timedGames) return [];
+    return timedGames
       .map((g) => marketMargin(g))
       .filter((m): m is MarketMargin => m !== null)
       .sort((a, b) => (mode === "cross" ? a.bestPct - b.bestPct : a.singlePct - b.singlePct));
-  }, [games, mode]);
+  }, [timedGames, mode]);
 
   const pool = useMemo(() => margins.slice(0, POOL).map((m) => m.game), [margins]);
 
@@ -251,6 +268,8 @@ function TestPage() {
   const togglePattern = (k: string) =>
     setExclFilter((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
 
+  const windowInverted = timeOn && !!timeFrom && !!timeTo && timeFrom > timeTo;
+
   const active = TABS.find((t) => t.key === tab)!;
 
   return (
@@ -276,7 +295,7 @@ function TestPage() {
               {games ? (
                 <>
                   {source === "demo" ? "Demo data" : "Scanner cache"} · {games.length} games
-                  {scannedAt ? ` · ${formatDateTime(scannedAt)}` : ""}
+                  {scannedAt ? ` · ${formatDateTimeLocal(scannedAt)}` : ""}
                 </>
               ) : (
                 "Nothing loaded"
@@ -309,10 +328,65 @@ function TestPage() {
             </div>
           </div>
 
+          {/* Kickoff window — narrows the pool every tab computes over, so
+              all structures (1/2/3 games) obey it. Untick to remove the time
+              factor without losing the typed window. */}
+          <div title="Only build from games kicking off inside this local-time window">
+            <label
+              className="label flex w-fit cursor-pointer items-center gap-1.5"
+              htmlFor="test-time-on"
+            >
+              <input
+                id="test-time-on"
+                type="checkbox"
+                checked={timeOn}
+                onChange={(e) => setTimeOn(e.target.checked)}
+                className="h-3.5 w-3.5 accent-primary"
+              />
+              Kickoff time
+            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="time"
+                value={timeFrom}
+                onChange={(e) => setTimeFrom(e.target.value)}
+                disabled={!timeOn}
+                aria-label="Kickoff from time"
+                className="input w-auto disabled:opacity-50"
+              />
+              <span className="text-xs text-muted-foreground">to</span>
+              <input
+                type="time"
+                value={timeTo}
+                onChange={(e) => setTimeTo(e.target.value)}
+                disabled={!timeOn}
+                aria-label="Kickoff to time"
+                className="input w-auto disabled:opacity-50"
+              />
+            </div>
+          </div>
+
           <button onClick={loadDemo} className="btn-secondary text-xs">
             Load demo odds
           </button>
         </div>
+
+        {games && timeOn && (
+          <p
+            className={cn(
+              "mt-3 text-xs",
+              windowInverted || timedGames?.length === 0
+                ? "text-destructive"
+                : "text-muted-foreground",
+            )}
+          >
+            {windowInverted
+              ? "The window ends before it starts, so nothing matches. Windows do not wrap past midnight."
+              : `${timedGames?.length ?? 0} of ${games.length} games kick off between ${
+                  timeFrom || "00:00"
+                } and ${timeTo || "23:59"} — every tab below builds only from those.`}
+          </p>
+        )}
 
         {!games && (
           <p className="mt-3 text-sm text-muted-foreground">
@@ -416,10 +490,27 @@ function ValueTab({
   patternCounts: Record<string, number>;
   hiddenByFilter: number;
 }) {
-  const positive = ranked.filter((r) => r.per100 >= 100).length;
   // The combo open in the preview modal, with the value figures that got it
   // ranked here (null = closed).
   const [preview, setPreview] = useState<{ result: ComboResult; per100: number } | null>(null);
+  // Unsettled bets. correlationNote below flags correlation *inside* a combo;
+  // this catches the other kind — a fixture already staked on another bet.
+  const { openBets } = useOpenBets();
+  const clashesFor = useCallback(
+    (gs: Game[]) => openBetClashes(eventExposures(gs, null, gs.length), openBets),
+    [openBets],
+  );
+  // Whether to drop combos that touch a fixture already staked.
+  const [hideExposed, setHideExposed] = useState(false);
+  const exposedCount = useMemo(
+    () => ranked.filter((r) => clashesFor(r.result.games).length > 0).length,
+    [ranked, clashesFor],
+  );
+  const visible = useMemo(
+    () => (hideExposed ? ranked.filter((r) => clashesFor(r.result.games).length === 0) : ranked),
+    [ranked, hideExposed, clashesFor],
+  );
+  const positive = visible.filter((r) => r.per100 >= 100).length;
 
   return (
     <div className="space-y-4">
@@ -501,26 +592,55 @@ function ValueTab({
         </div>
       </div>
 
-      {!hasGames ? null : ranked.length === 0 ? (
+      {!hasGames ? null : visible.length === 0 ? (
         <div className="card text-sm text-muted-foreground">
-          {hiddenByFilter > 0
-            ? `All ${hiddenByFilter} qualifying results are hidden by the uncovered-scenario filter. Select more patterns, or set it back to Any.`
-            : `Nothing qualifies from the ${poolSize} tightest markets at this payout floor. Lower it, or pick a different structure.`}
+          {hideExposed && exposedCount > 0 && ranked.length === exposedCount
+            ? `All ${ranked.length} qualifying results involve a fixture you already have an unsettled bet on. Switch back to All to see them.`
+            : hiddenByFilter > 0
+              ? `All ${hiddenByFilter} qualifying results are hidden by the uncovered-scenario filter. Select more patterns, or set it back to Any.`
+              : `Nothing qualifies from the ${poolSize} tightest markets at this payout floor. Lower it, or pick a different structure.`}
         </div>
       ) : (
         <>
           <div className="flex flex-wrap items-baseline gap-x-2 rounded-lg border border-border bg-card px-4 py-2">
             <span className="text-lg font-extrabold leading-none text-primary">
-              {ranked.length}
+              {visible.length}
             </span>
             <span className="text-sm font-semibold">ranked by expected value</span>
             <span className="text-xs text-muted-foreground">
               · {positive} above break-even
               {positive === 0 ? " — every option below loses money on average" : ""}
+              {hideExposed && exposedCount > 0 ? ` · ${exposedCount} hidden as exposed` : ""}
             </span>
+            {(exposedCount > 0 || hideExposed) && (
+              <div className="ml-auto flex items-center gap-1">
+                {[
+                  { on: false, label: `All (${ranked.length})` },
+                  { on: true, label: `Unexposed only (${ranked.length - exposedCount})` },
+                ].map((opt) => (
+                  <button
+                    key={String(opt.on)}
+                    onClick={() => setHideExposed(opt.on)}
+                    title={
+                      opt.on
+                        ? "Hide combos touching a fixture you already have an unsettled bet on"
+                        : "Show every ranked combo, including ones you are already exposed to"
+                    }
+                    className={cn(
+                      "rounded-full border px-3 py-1 text-xs font-semibold transition",
+                      hideExposed === opt.on
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-card text-foreground hover:bg-accent",
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
-          {ranked.map(({ result, per100, legs: n }, i) => {
+          {visible.map(({ result, per100, legs: n }, i) => {
             const corr = correlationNote(result.games);
             const hitRate = (1 - result.exclProb) * 100;
             return (
@@ -547,12 +667,21 @@ function ValueTab({
                           {corr}
                         </span>
                       )}
+                      {clashesFor(result.games).length > 0 && (
+                        <span
+                          title="A fixture here is already carrying an unsettled bet — open the preview for details"
+                          className="flex items-center gap-1 rounded bg-destructive/15 px-2 py-0.5 text-xs font-semibold text-destructive"
+                        >
+                          <AlertTriangle className="h-3 w-3" />
+                          already exposed
+                        </span>
+                      )}
                     </div>
                     {result.games.map((g) => (
                       <div key={g.id} className="truncate text-sm font-semibold">
                         {g.home} v {g.away}
                         <span className="ml-2 text-xs font-normal text-muted-foreground">
-                          {formatDateTime(g.commence)}
+                          {formatDateTimeLocal(g.commence)}
                           {g.league ? ` · ${g.league}` : ""}
                         </span>
                       </div>
@@ -606,6 +735,7 @@ function ValueTab({
       {preview && (
         <ComboPreviewModal
           result={preview.result}
+          openBets={openBets}
           onClose={() => setPreview(null)}
           onLoad={() => {
             onLoad(preview.result);
@@ -872,7 +1002,7 @@ function MarketsTab({ margins, mode }: { margins: MarketMargin[]; mode: ScanMode
                       {m.game.home} v {m.game.away}
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      {formatDateTime(m.game.commence)}
+                      {formatDateTimeLocal(m.game.commence)}
                       {m.game.league ? ` · ${m.game.league}` : ""}
                     </div>
                   </td>

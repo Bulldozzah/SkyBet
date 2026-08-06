@@ -14,14 +14,21 @@ export function AuthShell({
   subtitle,
   children,
   wide = false,
+  background,
 }: {
   title: string;
   subtitle?: ReactNode;
   children: ReactNode;
   wide?: boolean;
+  /** Overrides the default page background; switches title/subtitle to light-on-dark. */
+  background?: string;
 }) {
+  const dark = !!background;
   return (
-    <div className="flex min-h-screen w-full bg-background">
+    <div
+      className={cn("flex min-h-screen w-full", !dark && "bg-background")}
+      style={dark ? { backgroundColor: background } : undefined}
+    >
       {/* Brand panel */}
       <div className="relative hidden w-1/2 max-w-2xl md:block">
         <SkyBackdrop className="h-full w-full" />
@@ -45,13 +52,22 @@ export function AuthShell({
           {/* Wordmark, shown only when the brand panel is hidden. */}
           <Link
             to="/"
-            className="mb-8 inline-block text-2xl font-black tracking-tight text-foreground md:hidden"
+            className={cn(
+              "mb-8 inline-block text-2xl font-black tracking-tight md:hidden",
+              dark ? "text-white" : "text-foreground",
+            )}
           >
             SKY<span className="text-primary">BET</span>
           </Link>
 
-          <h1 className="text-3xl font-semibold text-foreground">{title}</h1>
-          {subtitle && <p className="mt-2 text-sm text-muted-foreground">{subtitle}</p>}
+          <h1 className={cn("text-3xl font-semibold", dark ? "text-white" : "text-foreground")}>
+            {title}
+          </h1>
+          {subtitle && (
+            <p className={cn("mt-2 text-sm", dark ? "text-slate-300" : "text-muted-foreground")}>
+              {subtitle}
+            </p>
+          )}
 
           <div className="mt-7">{children}</div>
         </div>

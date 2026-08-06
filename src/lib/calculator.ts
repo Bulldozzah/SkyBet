@@ -227,6 +227,95 @@ export const balanceProfitStakes = (
   return roundStakes(raw, validIdx, T);
 };
 
+/** "AW + BD" -> "W+D" — the shorthand the give-up dropdown is labelled with. */
+export const scenarioCode = (scenario: string): string =>
+  scenario
+    .split(" + ")
+    .map((tok) => tok.slice(1))
+    .join("+");
+
+export interface CoverPlan {
+  /** Row left unstaked, or null when every stakeable scenario is covered. */
+  sacrifice: number | null;
+  /** How many scenarios end up carrying a stake. */
+  coveredCount: number;
+  /** What each covered scenario nets, in currency. */
+  profit: number;
+  /** ...as a percentage of the budget, matching the table's Profit % column. */
+  profitPct: number;
+}
+
+/**
+ * What every choice of "which scenario do I give up" is worth, so the answer
+ * can be compared before committing to one.
+ *
+ * Under equal-profit dutching over a covered set C, each covered scenario nets
+ * T/S where S = Σ_{i∈C} 1/m_i and m_i = odds_i*(1-tax) + tax — so profit is
+ * T/S - T and the only thing a sacrifice changes is dropping 1/m_k out of S.
+ * Dropping the largest 1/m_k (the shortest-priced scenario, i.e. the
+ * bookmaker's favourite) therefore buys the most profit, which is why the
+ * best plan is so often the one you least want to give up.
+ *
+ * The Inc. checkboxes are deliberately ignored: picking a sacrifice is what
+ * sets them. Rows priced at or below 1 can never be staked, so they are not
+ * offered — giving one up costs nothing because it was already uncovered.
+ */
+export const coverPlans = (
+  rows: Row[],
+  tax: string | number,
+  targetStake: string | number,
+): CoverPlan[] => {
+  const T = toNumber(targetStake);
+  const taxRate = toNumber(tax);
+  if (!(T > 0)) return [];
+
+  const inv = new Map<number, number>();
+  rows.forEach((row, i) => {
+    const m = toNumber(row.odds) * (1 - taxRate) + taxRate;
+    if (toNumber(row.odds) > 1 && m > 0) inv.set(i, 1 / m);
+  });
+  const pool = [...inv.keys()];
+  if (pool.length === 0) return [];
+
+  const sumAll = pool.reduce((a, i) => a + (inv.get(i) as number), 0);
+  const plan = (sacrifice: number | null, S: number): CoverPlan => {
+    const profit = T / S - T;
+    return {
+      sacrifice,
+      coveredCount: pool.length - (sacrifice === null ? 0 : 1),
+      profit,
+      profitPct: (profit / T) * 100,
+    };
+  };
+
+  const plans = [plan(null, sumAll)];
+  // Giving up the only stakeable scenario would leave nothing to stake at all.
+  if (pool.length > 1) {
+    for (const i of pool) plans.push(plan(i, sumAll - (inv.get(i) as number)));
+  }
+  return plans;
+};
+
+/**
+ * Rows restaked to the given plan: `sacrifice` is excluded and left on zero,
+ * every other stakeable scenario shares the budget for equal profit. Returns
+ * null when there is nothing to stake.
+ */
+export const applyCoverPlan = (
+  rows: Row[],
+  tax: string | number,
+  targetStake: string | number,
+  sacrifice: number | null,
+): Row[] | null => {
+  const marked = rows.map((row, i) => ({
+    ...row,
+    excluded: sacrifice !== null && i === sacrifice,
+  }));
+  const stakes = balanceProfitStakes(marked, tax, targetStake);
+  if (!stakes) return null;
+  return marked.map((row, i) => ({ ...row, stake: String(stakes[i]) }));
+};
+
 export type BalanceWinResult =
   { ok: true; stakes: number[]; total: number; remaining: number } | { ok: false; message: string };
 

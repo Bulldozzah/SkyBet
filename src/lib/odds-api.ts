@@ -33,6 +33,13 @@ export interface League {
   title: string;
 }
 
+/**
+ * Sports the scanner offers. Only sports with a genuine 3-way (W/D/L) market
+ * belong here — the whole cover-bet pipeline prices three outcomes.
+ */
+export const SPORTS = [{ key: "soccer", label: "Football" }] as const;
+export type SportKey = (typeof SPORTS)[number]["key"];
+
 export interface OddsResponse {
   games: Game[];
   /** Credits left this month, straight from the response headers. */
@@ -70,14 +77,15 @@ interface ApiEvent {
 /**
  * API event -> Game, where W/D/L are decimal odds for home win / draw / away
  * win. Books missing a three-way market (or any leg) are dropped, as are
- * fixtures left with no usable book.
+ * fixtures left with no usable book. Soccer's h2h is 3-way natively; other
+ * sports arrive as the explicit h2h_3_way market — same shape, same handling.
  */
 export function normalizeEvents(events: ApiEvent[] | null | undefined): Game[] {
   return (events || [])
     .map((ev) => {
       const books = (ev.bookmakers || [])
         .map((bk) => {
-          const market = (bk.markets || []).find((m) => m.key === "h2h");
+          const market = (bk.markets || []).find((m) => m.key === "h2h" || m.key === "h2h_3_way");
           if (!market) return null;
           const odds = { W: 0, D: 0, L: 0 };
           for (const out of market.outcomes || []) {
@@ -122,11 +130,11 @@ export interface OddsRequest {
 }
 
 const leaguesFn = createServerFn({ method: "POST" })
-  .inputValidator((d: { accessToken: string }) => d)
+  .inputValidator((d: { accessToken: string; sport: string }) => d)
   .handler(async ({ data }) => {
-    const { loadSoccerLeagues, assertApprovedUser } = await import("./odds-server");
+    const { loadLeagues, assertApprovedUser } = await import("./odds-server");
     await assertApprovedUser(data.accessToken);
-    return loadSoccerLeagues();
+    return loadLeagues(data.sport);
   });
 
 const oddsFn = createServerFn({ method: "POST" })
@@ -146,12 +154,12 @@ const oddsFn = createServerFn({ method: "POST" })
   });
 
 /**
- * Soccer leagues currently in season. The /sports endpoint costs no credits,
- * but the result is cached server-side anyway so a room full of users doesn't
- * each trigger their own call.
+ * Leagues currently in season for one sport. The /sports endpoint costs no
+ * credits, but the result is cached server-side anyway so a room full of
+ * users doesn't each trigger their own call.
  */
-export async function fetchSoccerLeagues(accessToken: string): Promise<League[]> {
-  return leaguesFn({ data: { accessToken } });
+export async function fetchLeagues(accessToken: string, sport: SportKey): Promise<League[]> {
+  return leaguesFn({ data: { accessToken, sport } });
 }
 
 /**

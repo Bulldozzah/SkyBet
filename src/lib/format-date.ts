@@ -31,3 +31,20 @@ export const formatDate = (value: string | number | Date): string =>
 /** "20 Jul 2026, 18:30" — identical on server and client. */
 export const formatDateTime = (value: string | number | Date): string =>
   new Date(value).toLocaleString("en-GB", TIME_OPTS);
+
+/**
+ * "20 Jul 2026, 18:30" in the viewer's local timezone. Only safe for content
+ * that never renders on the server (e.g. rows that appear after a client-side
+ * cache read) — anywhere else it reintroduces the hydration mismatch this
+ * file exists to avoid. Use it where the shown time must agree with a local
+ * wall-clock comparison, like the kickoff time-of-day filter.
+ */
+export const formatDateTimeLocal = (value: string | number | Date): string =>
+  new Date(value).toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });

@@ -137,11 +137,22 @@ const apiError = async (res: Response): Promise<string> => {
 const scrub = (message: string, key: string): string =>
   key ? message.split(key).join("<redacted>") : message;
 
-export async function loadSoccerLeagues(): Promise<League[]> {
+// Sports the scanner exposes, mapped to the /sports endpoint's group names.
+// Everything here must price as a 3-way (W/D/L) market — that is the only
+// shape the cover-bet math understands. Soccer's plain h2h is already 3-way;
+// any future non-soccer sport gets the explicit h2h_3_way market — see
+// marketForSport below.
+const SPORT_GROUPS: Record<string, string> = {
+  soccer: "Soccer",
+};
+
+export async function loadLeagues(sport: string): Promise<League[]> {
+  const group = SPORT_GROUPS[sport];
+  if (!group) throw new Error(`Unknown sport: ${sport}`);
   const key = readKey();
   if (!key) throw new Error("The odds API key is not configured on the server.");
 
-  const { value } = await cached<League[]>("leagues", LEAGUES_TTL_MS, async () => {
+  const { value } = await cached<League[]>(`leagues:${sport}`, LEAGUES_TTL_MS, async () => {
     const res = await fetch(`${BASE}/sports/?apiKey=${key}`);
     if (!res.ok) throw new Error(scrub(await apiError(res), key));
     const all = (await res.json()) as {
@@ -149,13 +160,27 @@ export async function loadSoccerLeagues(): Promise<League[]> {
       title: string;
       group: string;
       active: boolean;
+      has_outrights: boolean;
     }[];
+    // Outright entries ("NHL Championship Winner", "Super Bowl Winner") are
+    // futures with no fixtures, so a scan of them can only return nothing.
+    // Inactive means off-season: the API serves no odds for those either, and
+    // they reappear here automatically when their season starts.
     return all
-      .filter((s) => s.group === "Soccer" && s.active)
+      .filter((s) => s.group === group && s.active && !s.has_outrights)
       .map((s) => ({ key: s.key, title: s.title }));
   });
   return value;
 }
+
+/**
+ * Which market to request for a league. Derived server-side from the sport
+ * key rather than trusted from the client, so nothing can request the 2-way
+ * moneyline the math cannot price. Sport keys from the API are prefixed
+ * (soccer_epl, icehockey_nhl, americanfootball_nfl, ...).
+ */
+const marketForSport = (sportKey: string): string =>
+  sportKey.startsWith("soccer") ? "h2h" : "h2h_3_way";
 
 export interface CachedOdds extends OddsResponse {
   /** True when no upstream call was made, so no credits were spent. */
@@ -179,7 +204,9 @@ export async function loadLeagueOdds(
     (to ? `&commenceTimeTo=${encodeURIComponent(to)}` : "");
   // The cache key deliberately excludes the API key: it identifies the data,
   // not the caller, so every user shares one entry.
-  const path = `${BASE}/sports/${sportKey}/odds/?${selector}&markets=h2h&oddsFormat=decimal${window}`;
+  const path = `${BASE}/sports/${sportKey}/odds/?${selector}&markets=${marketForSport(
+    sportKey,
+  )}&oddsFormat=decimal${window}`;
 
   const {
     value,

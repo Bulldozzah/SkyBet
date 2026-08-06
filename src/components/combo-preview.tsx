@@ -6,6 +6,8 @@ import { X, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { buildComboBet, type ComboResult } from "@/lib/scanner";
 import { computeRows, fmt, TEAM_LETTERS, type Row } from "@/lib/calculator";
+import { eventExposures, openBetClashes, type OpenBet } from "@/lib/exposure";
+import { ExposureWarning } from "@/components/exposure-warning";
 
 /** 3-letter uppercase abbreviation, e.g. "Arsenal" -> "ARS". */
 const abbr = (name: string, fallback: string): string =>
@@ -23,18 +25,22 @@ const OUTCOME_TONE: Record<string, string> = {
  * status — the same figures the Calculator would show at a 100 budget.
  *
  * `extra` lets a caller add a row of its own figures under the header without
- * this component having to know about them.
+ * this component having to know about them. `openBets` enables the correlation
+ * warning — pass the unsettled bets and any fixture already staked is named
+ * here, before the combo can be loaded.
  */
 export function ComboPreviewModal({
   result,
   onClose,
   onLoad,
   extra,
+  openBets,
 }: {
   result: ComboResult;
   onClose: () => void;
   onLoad: () => void;
   extra?: React.ReactNode;
+  openBets?: OpenBet[];
 }) {
   const bet = useMemo(() => buildComboBet(result), [result]);
   const rows = bet.rows as Row[];
@@ -44,6 +50,14 @@ export function ComboPreviewModal({
   );
   const names = bet.team_names ?? [];
   const tag = (letter: string) => abbr(names[TEAM_LETTERS.indexOf(letter)] ?? "", letter);
+
+  const clashes = useMemo(
+    () =>
+      openBets?.length
+        ? openBetClashes(eventExposures(result.games, null, result.games.length), openBets)
+        : [],
+    [openBets, result.games],
+  );
 
   return (
     <div
@@ -74,6 +88,12 @@ export function ComboPreviewModal({
         </div>
 
         {extra}
+
+        {clashes.length > 0 && (
+          <div className="mb-3">
+            <ExposureWarning clashes={clashes} compact />
+          </div>
+        )}
 
         {/* Teams & odds */}
         <div className="mb-3 space-y-1.5">

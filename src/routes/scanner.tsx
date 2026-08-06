@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Radar,
   RefreshCw,
@@ -16,8 +16,10 @@ import { Alert } from "@/components/auth-shell";
 import { cn } from "@/lib/utils";
 import {
   fetchOddsConfigured,
-  fetchSoccerLeagues,
+  fetchLeagues,
   fetchLeagueOdds,
+  SPORTS,
+  type SportKey,
   type Game,
   type League,
 } from "@/lib/odds-api";
@@ -35,8 +37,11 @@ import {
 } from "@/lib/scanner";
 import { getDemoGames } from "@/lib/demo-odds";
 import { SCAN_CACHE_KEY } from "@/lib/scan-cache";
+import { inTimeWindow } from "@/lib/time-window";
 import { fmt } from "@/lib/calculator";
 import { ComboPreviewModal } from "@/components/combo-preview";
+import { eventExposures, openBetClashes } from "@/lib/exposure";
+import { useOpenBets } from "@/hooks/use-open-bets";
 
 export const Route = createFileRoute("/scanner")({
   head: () => ({
@@ -167,24 +172,6 @@ const localDay = (iso: string | Date): string => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 
-/** Kickoff as a local 'HH:MM', comparable to an <input type="time">. */
-const localTime = (iso: string | Date): string => {
-  const d = iso instanceof Date ? iso : new Date(iso);
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(d.getHours())}:${p(d.getMinutes())}`;
-};
-
-/**
- * True when a kickoff falls inside an optional local time-of-day window.
- * Either end may be blank, so "from 18:00" and "up to 20:00" both work, and
- * clearing both covers the whole day again.
- */
-const inTimeWindow = (iso: string, from: string, to: string): boolean => {
-  if (!from && !to) return true;
-  const t = localTime(iso);
-  return (!from || t >= from) && (!to || t <= to);
-};
-
 /** The Odds API wants commence-time bounds as ISO without milliseconds. */
 const apiIso = (d: Date) => d.toISOString().replace(/\.\d+Z$/, "Z");
 
@@ -195,6 +182,7 @@ const apiIso = (d: Date) => d.toISOString().replace(/\.\d+Z$/, "Z");
 const CACHE_KEY = SCAN_CACHE_KEY;
 
 interface ScanCache {
+  sport?: SportKey;
   league?: string;
   regions?: string;
   books?: string;
@@ -209,6 +197,7 @@ interface ScanCache {
   timeTo?: string;
   scanTab?: ScanTab;
   scanDate?: string;
+  hideExposed?: boolean;
   selLeagues?: string[];
   dateGames?: Game[] | null;
   dateFetched?: number;
@@ -247,6 +236,7 @@ function ScannerPage() {
   // caller's session for the proxy to authorize.
   const token = session?.access_token ?? "";
 
+  const [sport, setSport] = useState<SportKey>("soccer");
   const [leagues, setLeagues] = useState<League[]>([]);
   const [league, setLeague] = useState("soccer_epl");
   const [regions, setRegions] = useState("eu,uk");
@@ -267,8 +257,9 @@ function ScannerPage() {
   const [scanTab, setScanTab] = useState<ScanTab>("league");
   // Left empty for the server render: "today" depends on the viewer's timezone,
   // so seeding it here would disagree with the client and break hydration.
-  // The mount effect below fills it in.
+  // The mount effect below fills both in.
   const [scanDate, setScanDate] = useState("");
+  const [today, setToday] = useState("");
   const [selLeagues, setSelLeagues] = useState<string[]>(["soccer_epl"]);
   const [dateGames, setDateGames] = useState<Game[] | null>(null);
   // How many games the last date scan actually fetched, before the cap — so
@@ -287,6 +278,15 @@ function ScannerPage() {
   const [error, setError] = useState("");
   // The combo currently open in the preview modal (null = closed).
   const [preview, setPreview] = useState<ComboResult | null>(null);
+  // Unsettled bets, so a combo built on a fixture already staked is flagged
+  // here rather than after it has been loaded into the Calculator.
+  const { openBets } = useOpenBets(!!session);
+  const clashesFor = useCallback(
+    (gs: Game[]) => openBetClashes(eventExposures(gs, null, gs.length), openBets),
+    [openBets],
+  );
+  // Whether to drop combos that touch a fixture already staked.
+  const [hideExposed, setHideExposed] = useState(false);
   // Guards the cache write until the cache read has happened, so the first
   // render never overwrites a good cache with defaults.
   const [hydrated, setHydrated] = useState(false);
@@ -295,6 +295,9 @@ function ScannerPage() {
   // localStorage, so reading it in a state initializer would desync hydration.
   useEffect(() => {
     const c = loadCache();
+    // A cache saved before a sport was removed may hold a key that no longer
+    // exists — only restore ones the picker still offers.
+    if (c.sport && SPORTS.some((s) => s.key === c.sport)) setSport(c.sport);
     if (c.league) setLeague(c.league);
     if (c.regions) setRegions(c.regions);
     if (c.books) setBooks(c.books);
@@ -308,8 +311,14 @@ function ScannerPage() {
     if (c.timeFrom) setTimeFrom(c.timeFrom);
     if (c.timeTo) setTimeTo(c.timeTo);
     if (c.scanTab) setScanTab(c.scanTab);
-    // Cached choice wins; otherwise default to the viewer's local today.
-    setScanDate(c.scanDate || localDay(new Date()));
+    if (c.hideExposed) setHideExposed(c.hideExposed);
+    // Cached choice wins, but only while it is still scannable: the odds feed
+    // drops fixtures the moment they kick off, so a date restored from
+    // yesterday's session can never return anything. Fall forward to today
+    // rather than let "Rescan this date" spend credits on a guaranteed blank.
+    const t = localDay(new Date());
+    setToday(t);
+    setScanDate(c.scanDate && c.scanDate >= t ? c.scanDate : t);
     if (c.selLeagues) setSelLeagues(c.selLeagues);
     if (c.dateGames) setDateGames(c.dateGames);
     if (c.dateFetched) setDateFetched(c.dateFetched);
@@ -329,14 +338,19 @@ function ScannerPage() {
 
   useEffect(() => {
     if (!hasKey || !token) return;
-    fetchSoccerLeagues(token)
+    fetchLeagues(token, sport)
       .then((ls) => {
         setLeagues(ls);
-        // Keep the (possibly cache-restored) selection if it's still valid.
+        // Keep the (possibly cache-restored) selection if it's still valid;
+        // after a sport switch nothing carries over, so fall to the first.
         setLeague((cur) => (ls.length && !ls.some((l) => l.key === cur) ? ls[0].key : cur));
+        setSelLeagues((cur) => {
+          const kept = cur.filter((k) => ls.some((l) => l.key === k));
+          return kept.length ? kept : ls.length ? [ls[0].key] : [];
+        });
       })
       .catch((e: Error) => setError(`Could not load leagues: ${e.message}`));
-  }, [hasKey, token]);
+  }, [hasKey, token, sport]);
 
   // Persist everything needed to restore this page after navigating away.
   useEffect(() => {
@@ -346,6 +360,7 @@ function ScannerPage() {
       localStorage.setItem(
         CACHE_KEY,
         JSON.stringify({
+          sport,
           league,
           regions,
           books,
@@ -360,6 +375,7 @@ function ScannerPage() {
           timeTo,
           scanTab,
           scanDate,
+          hideExposed,
           selLeagues,
           dateGames,
           dateFetched,
@@ -375,6 +391,7 @@ function ScannerPage() {
     }
   }, [
     hydrated,
+    sport,
     league,
     regions,
     books,
@@ -389,6 +406,7 @@ function ScannerPage() {
     timeTo,
     scanTab,
     scanDate,
+    hideExposed,
     selLeagues,
     dateGames,
     dateFetched,
@@ -439,9 +457,21 @@ function ScannerPage() {
   /**
    * Fetch every selected league restricted to the chosen local day, tag each
    * game with its league, and merge — pairing then works across leagues.
+   *
+   * The odds feed only prices fixtures that have not kicked off yet: a
+   * commence-time window that has already elapsed comes back empty however
+   * many games were actually played in it. So a past date is refused outright
+   * (it would cost credits for a guaranteed blank) and today's window starts
+   * at "now" rather than at midnight, which is what the feed answers anyway.
    */
   const scanByDate = async () => {
     if (!scanDate) return; // still hydrating; the date input has no value yet
+    if (today && scanDate < today) {
+      setError(
+        "That date has passed. The odds feed only prices fixtures that have not kicked off, so a past date always comes back empty — pick today or later.",
+      );
+      return;
+    }
     if (selLeagues.length === 0) {
       setError("Select at least one league to scan.");
       return;
@@ -449,8 +479,9 @@ function ScannerPage() {
     setBusy(true);
     setError("");
     try {
-      const start = new Date(`${scanDate}T00:00:00`);
-      const end = new Date(start.getTime() + 24 * 3600 * 1000);
+      const midnight = new Date(`${scanDate}T00:00:00`);
+      const end = new Date(midnight.getTime() + 24 * 3600 * 1000);
+      const start = new Date(Math.max(+midnight, Date.now()));
       const settled = await Promise.allSettled(
         selLeagues.map((k) =>
           fetchLeagueOdds(
@@ -494,7 +525,11 @@ function ScannerPage() {
           `Could not fetch: ${failed.join(", ")}. Results below cover the leagues that worked.`,
         );
       } else if (fetched === 0) {
-        setError("No games with 3-way odds on that date in the selected leagues.");
+        setError(
+          scanDate === today
+            ? "Nothing left to scan today — every fixture in these leagues has already kicked off, and the odds feed stops pricing a game once it starts. Try tomorrow, or add leagues."
+            : "No games with 3-way odds on that date in the selected leagues. A league can be in season and still have no fixtures that day.",
+        );
       }
     } catch (e) {
       setError(`Scan failed: ${(e as Error).message}`);
@@ -505,6 +540,18 @@ function ScannerPage() {
 
   const toggleLeague = (key: string) =>
     setSelLeagues((cur) => (cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key]));
+
+  // Leagues belong to one sport, so switching sports empties both selections
+  // until the new list arrives — a stale key would 404 upstream. The fetched
+  // games stay: they cost credits, and a rescan is always an explicit click.
+  const changeSport = (s: SportKey) => {
+    if (s === sport) return;
+    setSport(s);
+    setLeagues([]);
+    setLeague("");
+    setSelLeagues([]);
+    setError("");
+  };
 
   // One odds call costs (regions) credits, or 1 per 10 named bookmakers.
   const creditsPerLeague =
@@ -602,16 +649,27 @@ function ScannerPage() {
     };
   }, [activeGames, mode, minProfit, sortBy, teamCount, activePatterns]);
 
+  // Exposure filtering sits outside the scan memo above, so toggling it just
+  // re-filters rather than re-running the whole combination search.
+  const exposedCount = useMemo(
+    () => pairs.filter((r) => clashesFor(r.games).length > 0).length,
+    [pairs, clashesFor],
+  );
+  const visiblePairs = useMemo(
+    () => (hideExposed ? pairs.filter((r) => clashesFor(r.games).length === 0) : pairs),
+    [pairs, hideExposed, clashesFor],
+  );
+
   // Total scenarios for the current combo size (9 for pairs, 27 for triples).
   const scenarioCount = Math.pow(3, teamCount);
   const comboWord = teamCount === 3 ? "triples" : "pairs";
 
-  // Headline counts for the summary beside the scan tabs. `pairs` is the full
-  // qualifying set — the list further down renders only the top MAX_RESULTS —
-  // so this is the only place the true total is visible.
-  const fullCovers = pairs.filter((p) => p.fullCover).length;
+  // Headline counts for the summary beside the scan tabs. These follow the
+  // visible set — the list further down renders only the top MAX_RESULTS — so
+  // this is the only place the true total is visible.
+  const fullCovers = visiblePairs.filter((p) => p.fullCover).length;
   const gamesScanned = activeGames ? activeGames.length : 0;
-  const totalResults = pairs.length + arbs.length;
+  const totalResults = visiblePairs.length + arbs.length;
 
   const openInCalculator = (bet: unknown) =>
     navigate({ to: "/calculator", state: { loadBet: bet } as never });
@@ -701,10 +759,12 @@ function ScannerPage() {
               {totalResults === 1 ? "result" : "results"}
             </span>
             <span className="text-xs text-muted-foreground">
-              from {gamesScanned} game{gamesScanned === 1 ? "" : "s"} · {pairs.length} {comboWord}
+              from {gamesScanned} game{gamesScanned === 1 ? "" : "s"} · {visiblePairs.length}{" "}
+              {comboWord}
               {mode === "cross" ? ` · ${arbs.length} arbs` : ""}
               {fullCovers > 0 ? ` · ${fullCovers} guaranteed` : ""}
-              {pairs.length > MAX_RESULTS ? ` · top ${MAX_RESULTS} shown` : ""}
+              {hideExposed && exposedCount > 0 ? ` · ${exposedCount} hidden as exposed` : ""}
+              {visiblePairs.length > MAX_RESULTS ? ` · top ${MAX_RESULTS} shown` : ""}
             </span>
           </div>
         )}
@@ -719,6 +779,28 @@ function ScannerPage() {
         {/* ------------------------------------------------ controls column */}
         <aside className="space-y-4 lg:sticky lg:top-4">
           <div className="card grid gap-3">
+            {/* Every sport here prices as 3-way W/D/L. */}
+            <div>
+              <span className="label">Sport</span>
+              <div className="flex flex-wrap gap-2">
+                {SPORTS.map((s) => (
+                  <button
+                    key={s.key}
+                    onClick={() => changeSport(s.key)}
+                    disabled={!hasKey}
+                    className={cn(
+                      "rounded-full border px-3 py-1 text-xs font-semibold transition disabled:opacity-50",
+                      sport === s.key
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-card text-foreground hover:bg-accent",
+                    )}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {scanTab === "league" ? (
               <div>
                 <label className="label" htmlFor="league">
@@ -731,7 +813,9 @@ function ScannerPage() {
                   disabled={!hasKey}
                   className="input"
                 >
-                  {leagues.length === 0 && <option value="soccer_epl">EPL</option>}
+                  {leagues.length === 0 && (
+                    <option value={league}>{hasKey ? "Loading leagues…" : "EPL"}</option>
+                  )}
                   {leagues.map((l) => (
                     <option key={l.key} value={l.key}>
                       {l.title}
@@ -748,10 +832,18 @@ function ScannerPage() {
                   id="scanDate"
                   type="date"
                   value={scanDate}
+                  // Past days are unscannable, not merely empty — see scanByDate.
+                  min={today || undefined}
                   onChange={(e) => setScanDate(e.target.value)}
                   disabled={!hasKey}
                   className="input"
                 />
+                {scanDate === today && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Today only covers kickoffs still ahead — games already under way are no longer
+                    priced, so a rescan later returns fewer of them.
+                  </p>
+                )}
               </div>
             )}
 
@@ -851,7 +943,12 @@ function ScannerPage() {
             <div className="flex flex-wrap items-end gap-2">
               <button
                 onClick={() => void (scanTab === "league" ? scanLive() : scanByDate())}
-                disabled={!hasKey || busy || (scanTab === "date" && !scanDate)}
+                disabled={
+                  !hasKey ||
+                  busy ||
+                  (scanTab === "league" && !league) ||
+                  (scanTab === "date" && !scanDate)
+                }
                 className="btn-primary flex-1 justify-center disabled:opacity-60"
               >
                 <RefreshCw className={cn("h-4 w-4", busy && "animate-spin")} />
@@ -1085,11 +1182,10 @@ function ScannerPage() {
                           ? `${games?.length} games`
                           : `${filteredGames?.length} of ${games?.length} games in date range`
                       }`}{" "}
-                  · {pairs.length}
-                  {activePatterns.length > 0 && prefilterCount !== pairs.length
+                  · {visiblePairs.length}
+                  {prefilterCount !== visiblePairs.length
                     ? ` of ${prefilterCount}`
-                    : ""}{" "}
-                  qualifying {comboWord}
+                    : ""} qualifying {comboWord}
                   {books !== "region" && (scanTab === "date" || source === "live")
                     ? ` · ${BOOK_OPTIONS.find((b) => b.value === books)?.label ?? books}`
                     : ""}
@@ -1148,46 +1244,78 @@ function ScannerPage() {
               )}
 
               {/* Combination results */}
-              <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-primary">
-                <Radar className="h-4 w-4" />
-                {teamCount === 3 ? "Game triples" : "Game pairs"}
-                {mode === "single"
-                  ? " — one bookmaker, best single exclusion"
-                  : " — best odds per leg across books"}
-              </h2>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-primary">
+                  <Radar className="h-4 w-4" />
+                  {teamCount === 3 ? "Game triples" : "Game pairs"}
+                  {mode === "single"
+                    ? " — one bookmaker, best single exclusion"
+                    : " — best odds per leg across books"}
+                </h2>
+                {(exposedCount > 0 || hideExposed) && (
+                  <div className="flex items-center gap-1">
+                    {[
+                      { on: false, label: `All (${pairs.length})` },
+                      { on: true, label: `Unexposed only (${pairs.length - exposedCount})` },
+                    ].map((opt) => (
+                      <button
+                        key={String(opt.on)}
+                        onClick={() => setHideExposed(opt.on)}
+                        title={
+                          opt.on
+                            ? "Hide combos touching a fixture you already have an unsettled bet on"
+                            : "Show every qualifying combo, including ones you are already exposed to"
+                        }
+                        className={cn(
+                          "rounded-full border px-3 py-1 text-xs font-semibold transition",
+                          hideExposed === opt.on
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border bg-card text-foreground hover:bg-accent",
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
 
-              {pairs.length === 0 ? (
+              {visiblePairs.length === 0 ? (
                 <div className="card text-sm text-muted-foreground">
-                  {prefilterCount > 0
-                    ? `All ${prefilterCount} qualifying ${comboWord} are hidden by the uncovered-scenario filter. Select more patterns or set it back to Any.`
-                    : scanTab === "league" &&
-                        filteredGames?.length === 0 &&
-                        (games?.length ?? 0) > 0
-                      ? "No scanned games kick off in the selected date range. Widen or clear the kickoff filter."
-                      : (timeFrom || timeTo) &&
-                          activeGames.length === 0 &&
-                          (scanTab === "date" ? (dateGames?.length ?? 0) > 0 : true)
-                        ? "No scanned games kick off inside the selected time window. Widen or clear it."
-                        : activeGames.length === 0
-                          ? "No games with 3-way odds found. Scan another date or add leagues."
-                          : activeGames.length < teamCount
-                            ? `Only ${activeGames.length} game${activeGames.length === 1 ? "" : "s"} available — ${teamCount}-team combos need at least ${teamCount}. ` +
-                              (scanTab === "date"
-                                ? "Add more leagues or try another date."
-                                : "Widen the kickoff filter.")
-                            : `No ${comboWord} clear ${minProfit}% profit with these odds. Try a lower floor${
-                                teamCount === 3 ? ", switch to 2 teams," : ""
-                              } or ${scanTab === "date" ? "more leagues" : "another league"}.`}
+                  {hideExposed && exposedCount > 0 && pairs.length === exposedCount
+                    ? `All ${pairs.length} qualifying ${comboWord} involve a fixture you already have an unsettled bet on. Switch back to All to see them.`
+                    : prefilterCount > 0
+                      ? `All ${prefilterCount} qualifying ${comboWord} are hidden by the uncovered-scenario filter. Select more patterns or set it back to Any.`
+                      : scanTab === "league" &&
+                          filteredGames?.length === 0 &&
+                          (games?.length ?? 0) > 0
+                        ? "No scanned games kick off in the selected date range. Widen or clear the kickoff filter."
+                        : (timeFrom || timeTo) &&
+                            activeGames.length === 0 &&
+                            (scanTab === "date" ? (dateGames?.length ?? 0) > 0 : true)
+                          ? "No scanned games kick off inside the selected time window. Widen or clear it."
+                          : activeGames.length === 0
+                            ? scanTab === "date" && scanDate === today
+                              ? "Nothing left today — the odds feed drops a fixture once it kicks off, so what is left of today may be empty even though games were played. Scan tomorrow, or add leagues."
+                              : "No games with 3-way odds found. Scan another date or add leagues."
+                            : activeGames.length < teamCount
+                              ? `Only ${activeGames.length} game${activeGames.length === 1 ? "" : "s"} available — ${teamCount}-team combos need at least ${teamCount}. ` +
+                                (scanTab === "date"
+                                  ? "Add more leagues or try another date."
+                                  : "Widen the kickoff filter.")
+                              : `No ${comboWord} clear ${minProfit}% profit with these odds. Try a lower floor${
+                                  teamCount === 3 ? ", switch to 2 teams," : ""
+                                } or ${scanTab === "date" ? "more leagues" : "another league"}.`}
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {pairs.length > MAX_RESULTS && (
+                  {visiblePairs.length > MAX_RESULTS && (
                     <p className="text-xs text-muted-foreground">
-                      Showing the top {MAX_RESULTS} of {pairs.length} qualifying results (
+                      Showing the top {MAX_RESULTS} of {visiblePairs.length} qualifying results (
                       {sortBy === "profit" ? "highest profit" : "safest"} first).
                     </p>
                   )}
-                  {pairs.slice(0, MAX_RESULTS).map((r, idx) => (
+                  {visiblePairs.slice(0, MAX_RESULTS).map((r, idx) => (
                     <div
                       key={`${r.games.map((g) => g.id).join("-")}-${r.bookLabel}-${idx}`}
                       className={cn("card", r.fullCover && "border-success/40 bg-success/5")}
@@ -1207,6 +1335,14 @@ function ScannerPage() {
                               covered
                             </span>
                             <span className="text-xs text-muted-foreground">via {r.bookLabel}</span>
+                            {clashesFor(r.games).length > 0 && (
+                              <span
+                                title="A fixture here is already carrying an unsettled bet — open the preview for details"
+                                className="flex items-center gap-1 rounded-full bg-destructive/15 px-2 py-0.5 text-xs font-semibold text-destructive"
+                              >
+                                <AlertTriangle className="h-3 w-3" /> already exposed
+                              </span>
+                            )}
                           </div>
                           <div className="space-y-0.5">
                             {r.games.map((g) => (
@@ -1281,6 +1417,7 @@ function ScannerPage() {
       {preview && (
         <ComboPreviewModal
           result={preview}
+          openBets={openBets}
           onClose={() => setPreview(null)}
           onLoad={() => {
             openInCalculator(buildComboBet(preview));
