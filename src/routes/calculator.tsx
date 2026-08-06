@@ -1,6 +1,15 @@
 import { createFileRoute, useRouterState, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { Save, Download, RotateCcw, Scale, Target, Eraser, AlertTriangle } from "lucide-react";
+import {
+  Save,
+  Download,
+  RotateCcw,
+  Scale,
+  Target,
+  Eraser,
+  AlertTriangle,
+  Calculator,
+} from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { ProtectedRoute } from "@/components/protected-route";
 import { useAuth } from "@/lib/auth";
@@ -16,14 +25,18 @@ import {
   SPORTS,
   TEAM_LETTERS,
   TEAM_TABS,
+  applyCoverPlan,
   balanceProfitStakes,
   balanceWinStakes,
   computeRows,
+  coverPlans,
   deriveScenarioOdds,
   fmt,
+  labelScenario,
   makeNames,
   makeOutcomeOdds,
   makeRows,
+  scenarioCode,
   scenarioOutcomes,
   scenarioTeams,
   sideWord,
@@ -92,6 +105,9 @@ function CalculatorPage() {
     useState<ByTeams<OutcomeOddsInput[]>>(initialOutcomeOdds);
 
   const [targetWin, setTargetWin] = useState("");
+  // Which scenario the "Calculate" plan gives up: a row index as a string,
+  // "all" to cover everything, or "best" to take whichever pays most.
+  const [sacrifice, setSacrifice] = useState("best");
   const [betTitle, setBetTitle] = useState("");
   const [matchInfo, setMatchInfo] = useState<
     { home: string; away: string; league?: string }[] | null
@@ -194,6 +210,7 @@ function CalculatorPage() {
     setLoadedBetId(null);
     setSelectedRow(null);
     setTargetWin("");
+    setSacrifice("best");
     setStatusMsg("Reset to defaults.");
   };
 
@@ -220,6 +237,60 @@ function CalculatorPage() {
     setRows((prev) => prev.map((row, i) => ({ ...row, stake: String(res.stakes[i]) })));
     setStatusMsg(
       `Balanced Total win at ${fmt(toNumber(targetWin))} — staked ${fmt(res.total)}, remaining ${fmt(res.remaining)}.`,
+    );
+  };
+
+  // ------------------------------------------------- cover-all-but-one plans
+
+  // Every "give up scenario X" option costed out, so the dropdown can show
+  // what each one pays before you commit to it. Depends only on odds, budget
+  // and tax — applying a plan rewrites stakes and Inc. flags, neither of which
+  // feeds back in here, so the list stays put while you compare.
+  const plans = useMemo(() => coverPlans(rows, tax, targetStake), [rows, tax, targetStake]);
+  const coverAllPlan = plans.find((p) => p.sacrifice === null) ?? null;
+  const dropPlans = useMemo(() => plans.filter((p) => p.sacrifice !== null), [plans]);
+  const bestPlan = useMemo(
+    () =>
+      dropPlans.reduce<(typeof dropPlans)[number] | null>(
+        (best, p) => (best === null || p.profitPct > best.profitPct ? p : best),
+        null,
+      ),
+    [dropPlans],
+  );
+
+  const chosenPlan =
+    sacrifice === "best"
+      ? bestPlan
+      : sacrifice === "all"
+        ? coverAllPlan
+        : (dropPlans.find((p) => p.sacrifice === Number(sacrifice)) ?? null);
+
+  const signedPct = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
+
+  const calculateCover = () => {
+    if (!chosenPlan) {
+      setStatusMsg(
+        "Nothing to calculate — set a budget and give at least two scenarios odds above 1.",
+      );
+      return;
+    }
+    const next = applyCoverPlan(rows, tax, targetStake, chosenPlan.sacrifice);
+    if (!next) {
+      setStatusMsg("Nothing to stake with these odds.");
+      return;
+    }
+    setRows(() => next);
+    setSelectedRow(chosenPlan.sacrifice);
+    const each = `each covered scenario returns ${chosenPlan.profit >= 0 ? "+" : ""}${fmt(
+      chosenPlan.profit,
+    )} (${signedPct(chosenPlan.profitPct)})`;
+    setStatusMsg(
+      chosenPlan.sacrifice === null
+        ? `Covered ${chosenPlan.coveredCount} of ${rows.length} scenarios — ${each}.`
+        : `Covered ${chosenPlan.coveredCount} of ${rows.length} — ${each}. Uncovered: ${labelScenario(
+            rows[chosenPlan.sacrifice].name,
+            teamNames,
+          )}, which loses the whole ${fmt(toNumber(targetStake))} stake.`,
     );
   };
 
@@ -252,6 +323,7 @@ function CalculatorPage() {
     setBetTitle(bet.title || "");
     setMatchInfo(Array.isArray(bet.games) && bet.games.length > 0 ? bet.games : null);
     setLoadedBetId(bet.id ?? null);
+    setSacrifice("best");
     setStatusMsg(`Loaded "${bet.title}".`);
     // Clear the one-shot hand-off so a refresh doesn't reload it.
     void navigate({ to: "/calculator", replace: true, state: {} as never });
@@ -333,6 +405,8 @@ function CalculatorPage() {
             onChange={(e) => {
               setActiveTeams(Number(e.target.value) as TeamTab);
               setSelectedRow(null);
+              // Row indices mean something different on the other tab.
+              setSacrifice("best");
             }}
             className="input w-auto"
           >
@@ -546,30 +620,95 @@ function CalculatorPage() {
             Balancing — one row. Labels are short so all three controls fit
             across a 300px column; the full explanation lives in each title.
           */}
-          <div className="card flex items-center gap-2">
-            <button
-              onClick={balanceProfit}
-              className="btn-primary shrink-0 gap-1.5 px-3 text-xs"
-              title="Balance: redistribute the budget so every included scenario returns the same profit"
-            >
-              <Scale className="h-3.5 w-3.5" /> Balance
-            </button>
-            <button
-              onClick={balanceWin}
-              className="btn-secondary shrink-0 gap-1.5 px-3 text-xs"
-              title="Balance win: set every included scenario's Total win to the amount on the right — any unused budget stays in Remaining"
-            >
-              <Target className="h-3.5 w-3.5" /> Balance win
-            </button>
-            <input
-              type="text"
-              inputMode="decimal"
-              placeholder="Total win"
-              value={targetWin}
-              onChange={(e) => setTargetWin(e.target.value)}
-              aria-label="Target total win"
-              className="input min-w-0 flex-1 px-2 text-sm"
-            />
+          <div className="card space-y-3">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={balanceProfit}
+                className="btn-primary shrink-0 gap-1.5 px-3 text-xs"
+                title="Balance: redistribute the budget so every included scenario returns the same profit"
+              >
+                <Scale className="h-3.5 w-3.5" /> Balance
+              </button>
+              <button
+                onClick={balanceWin}
+                className="btn-secondary shrink-0 gap-1.5 px-3 text-xs"
+                title="Balance win: set every included scenario's Total win to the amount on the right — any unused budget stays in Remaining"
+              >
+                <Target className="h-3.5 w-3.5" /> Balance win
+              </button>
+              <input
+                type="text"
+                inputMode="decimal"
+                placeholder="Total win"
+                value={targetWin}
+                onChange={(e) => setTargetWin(e.target.value)}
+                aria-label="Target total win"
+                className="input min-w-0 flex-1 px-2 text-sm"
+              />
+            </div>
+
+            {/*
+              Cover all but one. Every option is priced in its own label, so
+              the comparison the dropdown exists to make happens before the
+              click rather than by trying each one in turn.
+            */}
+            <div className="space-y-2 border-t border-border pt-3">
+              <label className="label mb-0" htmlFor="sacrifice">
+                Scenario to give up
+                <span className="ml-1 font-normal normal-case text-muted-foreground">
+                  (the rest share the budget for equal profit)
+                </span>
+              </label>
+              <select
+                id="sacrifice"
+                value={sacrifice}
+                onChange={(e) => setSacrifice(e.target.value)}
+                disabled={plans.length === 0}
+                className="input disabled:opacity-50"
+              >
+                {plans.length === 0 && <option value="best">Enter a budget and odds first</option>}
+                {bestPlan && (
+                  <option value="best">
+                    ★ Best · {scenarioCode(rows[bestPlan.sacrifice as number].name)} ·{" "}
+                    {signedPct(bestPlan.profitPct)}
+                  </option>
+                )}
+                {coverAllPlan && (
+                  <option value="all">
+                    Give up nothing · cover {coverAllPlan.coveredCount} ·{" "}
+                    {signedPct(coverAllPlan.profitPct)}
+                  </option>
+                )}
+                {dropPlans.map((p) => {
+                  const name = rows[p.sacrifice as number].name;
+                  return (
+                    <option key={p.sacrifice} value={String(p.sacrifice)}>
+                      {scenarioCode(name)} · {signedPct(p.profitPct)} ·{" "}
+                      {labelScenario(name, teamNames)}
+                    </option>
+                  );
+                })}
+              </select>
+              <button
+                onClick={calculateCover}
+                disabled={!chosenPlan}
+                className="btn-primary w-full justify-center gap-1.5 text-xs disabled:opacity-60"
+                title="Stake every scenario except the one selected, so they all return the same profit"
+              >
+                <Calculator className="h-3.5 w-3.5" />
+                {chosenPlan
+                  ? `Calculate — cover ${chosenPlan.coveredCount} of ${rows.length}`
+                  : "Calculate"}
+              </button>
+              {chosenPlan && chosenPlan.profitPct < 0 && (
+                <p className="text-xs text-warning-foreground">
+                  This plan loses {signedPct(chosenPlan.profitPct)} on every covered scenario.
+                  {bestPlan && bestPlan.profitPct > 0
+                    ? ` The best available is ${scenarioCode(rows[bestPlan.sacrifice as number].name)} at ${signedPct(bestPlan.profitPct)}.`
+                    : " No give-up scenario turns a profit at these odds."}
+                </p>
+              )}
+            </div>
           </div>
 
           {/* Save name */}
