@@ -257,8 +257,9 @@ function ScannerPage() {
   const [scanTab, setScanTab] = useState<ScanTab>("league");
   // Left empty for the server render: "today" depends on the viewer's timezone,
   // so seeding it here would disagree with the client and break hydration.
-  // The mount effect below fills it in.
+  // The mount effect below fills both in.
   const [scanDate, setScanDate] = useState("");
+  const [today, setToday] = useState("");
   const [selLeagues, setSelLeagues] = useState<string[]>(["soccer_epl"]);
   const [dateGames, setDateGames] = useState<Game[] | null>(null);
   // How many games the last date scan actually fetched, before the cap — so
@@ -311,8 +312,13 @@ function ScannerPage() {
     if (c.timeTo) setTimeTo(c.timeTo);
     if (c.scanTab) setScanTab(c.scanTab);
     if (c.hideExposed) setHideExposed(c.hideExposed);
-    // Cached choice wins; otherwise default to the viewer's local today.
-    setScanDate(c.scanDate || localDay(new Date()));
+    // Cached choice wins, but only while it is still scannable: the odds feed
+    // drops fixtures the moment they kick off, so a date restored from
+    // yesterday's session can never return anything. Fall forward to today
+    // rather than let "Rescan this date" spend credits on a guaranteed blank.
+    const t = localDay(new Date());
+    setToday(t);
+    setScanDate(c.scanDate && c.scanDate >= t ? c.scanDate : t);
     if (c.selLeagues) setSelLeagues(c.selLeagues);
     if (c.dateGames) setDateGames(c.dateGames);
     if (c.dateFetched) setDateFetched(c.dateFetched);
@@ -451,9 +457,21 @@ function ScannerPage() {
   /**
    * Fetch every selected league restricted to the chosen local day, tag each
    * game with its league, and merge — pairing then works across leagues.
+   *
+   * The odds feed only prices fixtures that have not kicked off yet: a
+   * commence-time window that has already elapsed comes back empty however
+   * many games were actually played in it. So a past date is refused outright
+   * (it would cost credits for a guaranteed blank) and today's window starts
+   * at "now" rather than at midnight, which is what the feed answers anyway.
    */
   const scanByDate = async () => {
     if (!scanDate) return; // still hydrating; the date input has no value yet
+    if (today && scanDate < today) {
+      setError(
+        "That date has passed. The odds feed only prices fixtures that have not kicked off, so a past date always comes back empty — pick today or later.",
+      );
+      return;
+    }
     if (selLeagues.length === 0) {
       setError("Select at least one league to scan.");
       return;
@@ -461,8 +479,9 @@ function ScannerPage() {
     setBusy(true);
     setError("");
     try {
-      const start = new Date(`${scanDate}T00:00:00`);
-      const end = new Date(start.getTime() + 24 * 3600 * 1000);
+      const midnight = new Date(`${scanDate}T00:00:00`);
+      const end = new Date(midnight.getTime() + 24 * 3600 * 1000);
+      const start = new Date(Math.max(+midnight, Date.now()));
       const settled = await Promise.allSettled(
         selLeagues.map((k) =>
           fetchLeagueOdds(
@@ -506,7 +525,11 @@ function ScannerPage() {
           `Could not fetch: ${failed.join(", ")}. Results below cover the leagues that worked.`,
         );
       } else if (fetched === 0) {
-        setError("No games with 3-way odds on that date in the selected leagues.");
+        setError(
+          scanDate === today
+            ? "Nothing left to scan today — every fixture in these leagues has already kicked off, and the odds feed stops pricing a game once it starts. Try tomorrow, or add leagues."
+            : "No games with 3-way odds on that date in the selected leagues. A league can be in season and still have no fixtures that day.",
+        );
       }
     } catch (e) {
       setError(`Scan failed: ${(e as Error).message}`);
@@ -809,10 +832,18 @@ function ScannerPage() {
                   id="scanDate"
                   type="date"
                   value={scanDate}
+                  // Past days are unscannable, not merely empty — see scanByDate.
+                  min={today || undefined}
                   onChange={(e) => setScanDate(e.target.value)}
                   disabled={!hasKey}
                   className="input"
                 />
+                {scanDate === today && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Today only covers kickoffs still ahead — games already under way are no longer
+                    priced, so a rescan later returns fewer of them.
+                  </p>
+                )}
               </div>
             )}
 
@@ -1264,7 +1295,9 @@ function ScannerPage() {
                             (scanTab === "date" ? (dateGames?.length ?? 0) > 0 : true)
                           ? "No scanned games kick off inside the selected time window. Widen or clear it."
                           : activeGames.length === 0
-                            ? "No games with 3-way odds found. Scan another date or add leagues."
+                            ? scanTab === "date" && scanDate === today
+                              ? "Nothing left today — the odds feed drops a fixture once it kicks off, so what is left of today may be empty even though games were played. Scan tomorrow, or add leagues."
+                              : "No games with 3-way odds found. Scan another date or add leagues."
                             : activeGames.length < teamCount
                               ? `Only ${activeGames.length} game${activeGames.length === 1 ? "" : "s"} available — ${teamCount}-team combos need at least ${teamCount}. ` +
                                 (scanTab === "date"
